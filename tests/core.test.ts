@@ -407,3 +407,11 @@ test('the heat guard counts a hot laptop only when two readings agree', async ()
   expect(newAlerts(spike, cfg).some(a => a.key === 'hot')).toBe(false)
   expect(newAlerts(hot, cfg).some(a => a.key === 'hot')).toBe(true)
 })
+
+test('battery and memory limits join the heat guard only when set', async () => {
+  const v = { tempC: 50, pct: 90, discharging: true, load1: 1, memPct: 95 }
+  expect(refuse(v, cfg)).toBe(null)
+  expect(refuse(v, parseConfig({ pauseOnBattery: true }))).toBe('running on battery')
+  expect(refuse({ ...v, discharging: false }, parseConfig({ maxMemPct: 90 }))).toContain('memory at 95%')
+  expect(refuse(v, parseConfig({ guard: false, pauseOnBattery: true }))).toBe(null)
+})

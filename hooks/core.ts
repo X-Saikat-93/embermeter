@@ -21,6 +21,9 @@ export type Cfg = {
   openOnStart: boolean
   band: boolean
   alerts: boolean
+  // Guardrails, all off by default.
+  pauseOnBattery: boolean
+  maxMemPct: number
 }
 
 // A heavy word must stand alone, so paths and file names (`tests/a.test.ts`, `vite.config.ts`, `--ci`) don't count.
@@ -85,6 +88,8 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     openOnStart: o.openOnStart !== false,
     band: o.band !== false,
     alerts: o.alerts !== false,
+    pauseOnBattery: o.pauseOnBattery === true,
+    maxMemPct: num(o.maxMemPct, 0, 0, 100),
   }
 }
 
@@ -672,6 +677,8 @@ export const refuse = (v: Vitals | null, cfg: Cfg): string | null => {
   if (!cfg.guard || v === null) return null
   if (v.tempC !== null && v.tempC > cfg.maxTempC) return `laptop at ${v.tempC.toFixed(0)}C (limit ${cfg.maxTempC}C)`
   if (v.discharging && v.pct !== null && v.pct < cfg.minBatteryPct) return `battery ${v.pct}% and discharging`
+  if (cfg.pauseOnBattery && v.discharging) return 'running on battery'
+  if (cfg.maxMemPct > 0 && v.memPct !== null && v.memPct > cfg.maxMemPct) return `memory at ${v.memPct}% (limit ${cfg.maxMemPct}%)`
   return null
 }
 
