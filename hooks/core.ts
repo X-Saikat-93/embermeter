@@ -4,6 +4,7 @@ import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, Day
 export type Theme = 'night' | 'day' | 'washi' | 'contrast'
 export type Motion = 'smooth' | 'reduced' | 'off'
 export type StatusPreset = 'full' | 'minimal' | 'cost' | 'off'
+export type TermDraw = 'graphics' | 'text'
 
 export type Cfg = {
   theme: Theme
@@ -29,6 +30,7 @@ export type Cfg = {
   maxMemPct: number
   // Presentation.
   statusLine: StatusPreset
+  terminal: TermDraw
 }
 
 // A heavy word must stand alone, so paths and file names (`tests/a.test.ts`, `vite.config.ts`, `--ci`) don't count.
@@ -98,6 +100,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     pauseOnBattery: o.pauseOnBattery === true,
     maxMemPct: num(o.maxMemPct, 0, 0, 100),
     statusLine: o.statusLine === 'minimal' || o.statusLine === 'cost' || o.statusLine === 'off' ? o.statusLine : 'full',
+    terminal: o.terminalDrawing === 'text' ? 'text' : 'graphics',
   }
 }
 

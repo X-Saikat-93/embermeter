@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { emptyBoard, parseConfig, startTurn, withCtx } from '../hooks/core'
+import { termHeader, termPage, termStrip } from '../hooks/term/pages'
 import { base64, blocks, DEFAULT, encode, mix, moves, safeGlyph } from '../hooks/term/raster'
 import { fit, lineText, meter, spark } from '../hooks/term/segments'
 
@@ -65,6 +67,44 @@ test('heat colours run from good to bad along the meter', async () => {
 test('sparklines scale to their peak', async () => {
   expect(spark([0, 5, 10], 3, undefined, 'info')[0]?.t).toBe('▁▅█')
   expect(spark([], 5)[0]?.t).toBe('–')
+})
+
+test('pages split into blocks at titles; only a live turn moves', async () => {
+  const cfg = parseConfig({ motion: 'smooth' })
+  const idle = withCtx(emptyBoard(0), { tokens: 1000, window: 10000, pct: 10, usd: 0.1, limits: [] })
+  const page = termPage('overview', idle, cfg, null, 80)
+  expect(blocks(page).every(b => b[0] === page[0] || b[0]?.title)).toBe(true)
+  expect(moves(page)).toBe(false)
+  expect(moves(termHeader(idle, cfg))).toBe(false)
+
+  const live = startTurn(idle, 1000, null)
+  expect(moves(termPage('overview', live, cfg, null, 80))).toBe(true)
+  expect(moves(termHeader(live, cfg))).toBe(true)
+  expect(moves([termStrip(live, cfg)])).toBe(true)
+  expect(moves(termHeader(live, parseConfig({ motion: 'off' })))).toBe(false)
+})
+
+test('motion changes the frame: the spinner turns and the highlight sweeps', async () => {
+  const cfg = parseConfig({})
+  const live = startTurn(withCtx(emptyBoard(0), { tokens: 50000, window: 100000, pct: 50, usd: 1, limits: [] }), 1000, null)
+  const head = termHeader(live, cfg)
+  const a = words(encode(head, 60, 'washi', 0).cells)
+  const b = words(encode(head, 60, 'washi', 1).cells)
+  const spinRow = 60 * 3
+  expect(a[spinRow]).not.toBe(b[spinRow])
+  const strip = [termStrip(live, cfg)]
+  expect(encode(strip, 60, 'washi', 2).cells).not.toBe(encode(strip, 60, 'washi', 6).cells)
+})
+
+test('every page reads at the narrowest width without a line past it', async () => {
+  const cfg = parseConfig({ budgetUsd: 5, commandPrefix: 'rtk' })
+  const b = withCtx(emptyBoard(0), { tokens: 1000, window: 10000, pct: 10, usd: 0.1, limits: [{ kind: 'five_hour', pct: 40, resetsAt: null }] })
+  for (const tab of ['overview', 'context', 'spend', 'tools', 'files', 'agents', 'system'] as const) {
+    const page = termPage(tab, b, cfg, { sessions: 1, usd: 1, turns: 1, calls: 1 }, 40)
+    expect(page.length).toBeGreaterThan(0)
+    for (const l of page) expect([...lineText(l)].length).toBeLessThanOrEqual(40)
+  }
+  for (const l of termHeader({ ...b, branch: 'feature/a-very-long-branch-name', model: 'claude-opus-5-5-20261101' }, cfg, 40)) expect([...lineText(l)].length).toBeLessThanOrEqual(40)
 })
 
 test('fit clips a line with an ellipsis and keeps short ones as they are', async () => {

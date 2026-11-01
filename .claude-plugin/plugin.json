@@ -18,7 +18,7 @@
     },
     "motion": {
       "title": "Motion",
-      "description": "smooth: eased transitions plus live particles and pulses; reduced: eased transitions only; off: static",
+      "description": "smooth: eased transitions plus live particles and pulses (in the terminal, a spinner, pulses and a sweep while work runs); reduced: eased transitions only; off: static",
       "type": "string",
       "options": ["smooth", "reduced", "off"],
       "default": "smooth"
@@ -34,6 +34,13 @@
       "description": "Show the compact animated strip (grade, context, temp, battery, cost) above the prompt",
       "type": "boolean",
       "default": true
+    },
+    "terminalDrawing": {
+      "title": "Terminal drawing",
+      "description": "graphics: coloured cell meters and charts in the CLI pane and strip; text: plain lines, for screen readers or terminals that draw block characters poorly",
+      "type": "string",
+      "options": ["graphics", "text"],
+      "default": "graphics"
     },
     "statusLine": {
       "title": "Status line",

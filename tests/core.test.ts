@@ -526,6 +526,8 @@ test('CSV text that a spreadsheet would run as a formula is neutralised; numbers
   expect(row).toContain(',-10.0,')
 })
 
-test('the contrast theme parses', async () => {
+test('the contrast theme and the new settings parse, with safe defaults', async () => {
   expect(parseConfig({ theme: 'contrast' }).theme).toBe('contrast')
+  expect(parseConfig({})).toMatchObject({ turnBudgetUsd: 0, loopBreak: false, pauseOnBattery: false, maxMemPct: 0, statusLine: 'full', terminal: 'graphics' })
+  expect(parseConfig({ terminalDrawing: 'text', loopBreak: 'yes', maxMemPct: 400 })).toMatchObject({ terminal: 'text', loopBreak: false, maxMemPct: 0 })
 })

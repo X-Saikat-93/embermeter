@@ -64,26 +64,63 @@ test('the spend tab opens on every surface', async ($, on) => {
   }
 })
 
-test('the terminal draws each tab as text, not one line of alt', async ($, on) => {
+// The text a terminal Raster paints, row by row: each cell is three little-endian u32s, the first its code point.
+const rasterText = (props: Record<string, unknown>): string[] => {
+  const bin = atob(String(props.cells))
+  const cols = Number(props.columns)
+  const rows: string[] = []
+  for (let o = 0, x = 0, row = ''; o < bin.length; o += 12) {
+    row += String.fromCodePoint(bin.charCodeAt(o) | (bin.charCodeAt(o + 1) << 8) | (bin.charCodeAt(o + 2) << 16) | (bin.charCodeAt(o + 3) << 24))
+    if (++x === cols) {
+      rows.push(row.trimEnd())
+      row = ''
+      x = 0
+    }
+  }
+  return rows
+}
+
+const painted = async (ui: any): Promise<string[]> => (await ui.findAll({ type: 'Raster' })).flatMap((r: any) => rasterText(r.props))
+
+test('the terminal paints each tab as coloured cells', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.tool.call({ tool: 'Bash', command: 'rtk git status' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^Context\s+[█░]+\s+20%/ })).toBeTruthy()
+  expect((await painted(ui)).some(r => /^Context\s+[█▏▎▍▌▋▊▉]+░+\s+20%/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /Embermeter/.test(r))).toBe(true)
   await ui.press({ key: 'tab-tools' })
-  expect(await ui.find({ type: 'Text', text: /Tool leaderboard/ })).toBeTruthy()
+  expect((await painted(ui)).some(r => /^Tool leaderboard/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /Bash\s+█/.test(r))).toBe(true)
   await ui.press({ key: 'tab-system' })
-  expect(await ui.find({ type: 'Text', text: /^Memory/ })).toBeTruthy()
+  expect((await painted(ui)).some(r => /^Memory/.test(r))).toBe(true)
+  // Every tab draws something, and no Raster is wider than the body.
+  for (const t of ['overview', 'context', 'spend', 'tools', 'files', 'agents', 'system']) {
+    await ui.press({ key: `tab-${t}` })
+    const rasters = await ui.findAll({ type: 'Raster' })
+    expect(rasters.length).toBeGreaterThan(1)
+    for (const r of rasters) expect(Number(r.props.columns)).toBeLessThanOrEqual(PANE.props.bodyColumns)
+  }
   await ui.unmount()
 })
 
-test('the band above the prompt draws as text in the terminal', async ($, on) => {
+test('the band above the prompt paints as cells in the terminal', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ plugin: 'embermeter', component: 'AbovePrompt', surface: 'terminal', props: {} } as any)
-  expect(await ui.find({ type: 'Text', text: /ctx [█░]+ 20%/ })).toBeTruthy()
+  expect((await painted(ui)).some(r => /ctx [█▏▎▍▌▋▊▉]+░+ 20%/.test(r))).toBe(true)
+  await ui.unmount()
+})
+
+test('with terminal drawing set to text, the terminal gets plain lines', { options: { terminalDrawing: 'text' } }, async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^Context\s+[█▏▎▍▌▋▊▉]+░+\s+20%/ })).toBeTruthy()
   await ui.unmount()
 })
 

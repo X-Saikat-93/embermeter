@@ -47,8 +47,9 @@ import {
 } from './core'
 import type { Cfg } from './core'
 import { agents as drawAgents, card, contextPage, drawContext, files as drawFiles, header, overview, spend, strip, system, tools as drawTools } from './draw'
-import type { Line } from './text'
-import { textHeader, textPage, textStrip } from './text'
+import { termHeader, termPage, termStrip } from './term/pages'
+import { fit } from './term/segments'
+import { animate, drawLines, dropFrames } from './term/view'
 
 const PANE = 'embermeter'
 const TABS: { id: Tab; label: string; key: string }[] = [
@@ -267,6 +268,8 @@ export const register: Register = (on, options) => {
     await tick($)
     await refreshComp($, true)
     $.clock.every(1000, () => tick($))
+    // ponytail: ~7 fps while a block moves (live turn, running agent); idle frames send nothing.
+    if (cfg.motion === 'smooth') $.clock.every(140, () => animate($, cfg))
     return next(e)
   })
 
@@ -292,6 +295,7 @@ export const register: Register = (on, options) => {
     }
     if (arg === 'close') {
       await $.ui.close({ id: PANE })
+      dropFrames(PANE)
       return { text: 'Embermeter closed.' }
     }
     const tab = TABS.find(t => t.id === arg)
@@ -418,14 +422,11 @@ export const register: Register = (on, options) => {
     if (!cfg.band || (e as any).props?.hasSurvey) return next(e)
     const b = await get($)
     if (b.vitals === null) return next(e)
-    const { Box, Text, Svg } = $.ui.resolve(e) as any
+    const els = $.ui.resolve(e) as any
+    const { Box, Svg } = els
     if (!vector(e)) {
-      const l = textStrip(b, cfg)
-      return (
-        <Box>
-          <Text {...(l.c ? { color: l.c } : {})}>{l.t}</Text>
-        </Box>
-      )
+      const width = Math.max(20, ((e as any).viewport?.columns ?? 80) - 2)
+      return drawLines(els, cfg, e.requestId, 'band', [fit(termStrip(b, cfg), width)], width)
     }
     const D = drawContext(cfg, drawn.band ?? null, undefined)
     drawn.band = b
@@ -437,8 +438,9 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Svg: SvgEl, Button } = $.ui.resolve(e) as any
-    const Svg = vector(e) ? SvgEl : undefined
+    const els = $.ui.resolve(e) as any
+    const { Box, Text, Button } = els
+    const Svg = vector(e) ? els.Svg : undefined
     const b = await get($)
     const tab = ((await read($, tabAtom)) ?? 'overview') as Tab
     const cols: number | undefined = (e as any).props?.bodyColumns
@@ -448,16 +450,8 @@ export const register: Register = (on, options) => {
     drawn[site] = b
     const warn = refuse(steadyVitals(b), cfg)
 
-    // Surfaces without Svg (the terminal) get the same data as text lines.
-    const lines = (ls: Line[]) => (
-      <Box flexDirection="column">
-        {ls.map(l => (
-          <Text {...(l.c ? { color: l.c } : {})} {...(l.b ? { bold: true } : {})}>
-            {l.t}
-          </Text>
-        ))}
-      </Box>
-    )
+    // The terminal draws the same numbers as coloured cells (term/), the other surfaces as SVG.
+    const width = cols ?? 80
     // The desktop draws an interactive SVG in a sandboxed frame, so the turn bars' tooltips work there.
     const hover = (e as any).surface === 'desktop'
     const picture = (source: string, alt: string) => <Svg source={source} alt={alt} {...(hover ? { isInteractive: true } : {})} />
@@ -472,7 +466,7 @@ export const register: Register = (on, options) => {
       agents: () => picture(drawAgents(D, b), 'Subagent swimlanes'),
       system: () => picture(system(D, b, cfg), 'Machine vitals and guardrails'),
     }
-    const page = Svg ? (pages[tab]?.() ?? null) : tab === 'log' ? null : lines(textPage(tab, b, cfg, life, cols))
+    const page = Svg ? (pages[tab]?.() ?? null) : tab === 'log' ? null : drawLines(els, cfg, PANE, `pane-${tab}`, termPage(tab, b, cfg, life, cols), width)
 
     return (
       <Box flexDirection="column" gap="sm">
@@ -492,7 +486,7 @@ export const register: Register = (on, options) => {
             Reset
           </Button>
         </Box>
-        {Svg ? picture(header(D, b, cfg), `Embermeter · ${statusText(b)}`) : lines(textHeader(b, cfg))}
+        {Svg ? picture(header(D, b, cfg), `Embermeter · ${statusText(b)}`) : drawLines(els, cfg, PANE, 'pane-header', termHeader(b, cfg, width), width)}
         {warn && (
           <Text color="error" bold>
             Heat guard armed: {warn}. Heavy jobs wait.
