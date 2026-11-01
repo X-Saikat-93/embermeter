@@ -498,7 +498,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column">
             <Text bold>Slowest calls</Text>
             {slowest(b, 6).map(c => (
-              <Text color="subtle">
+              <Text key={`slow-${c.id}`} color="subtle">
                 {dur(c.ms).padStart(6)} · {c.tool} · {c.detail}
               </Text>
             ))}
@@ -507,7 +507,7 @@ export const register: Register = (on, options) => {
               .slice(-rows)
               .reverse()
               .map(c => (
-                <Text color={c.status === 'fail' || c.status === 'denied' ? 'error' : c.status === 'run' ? 'warning' : 'subtle'}>
+                <Text key={`call-${c.id}`} color={c.status === 'fail' || c.status === 'denied' ? 'error' : c.status === 'run' ? 'warning' : 'subtle'}>
                   {c.status === 'run' ? '▸' : c.status === 'ok' ? '✓' : c.status === 'denied' ? '⊘' : '✕'} {c.agent ? '[agent] ' : ''}
                   {c.tool} {c.detail} {c.ms !== null ? `· ${dur(c.ms)}` : ''}
                 </Text>
@@ -522,7 +522,7 @@ export const register: Register = (on, options) => {
               .sort((x, y) => y[1].last - x[1].last)
               .slice(0, rows)
               .map(([path, f]) => (
-                <Text color={f.edit + f.write === 0 ? 'subtle' : undefined}>
+                <Text key={`file-${path}`} {...(f.edit + f.write === 0 ? { color: 'subtle' } : {})}>
                   {shortPath(path, 70)} · {f.edit} edit · {f.write} write · {f.read} read
                 </Text>
               ))}
@@ -550,8 +550,8 @@ export const register: Register = (on, options) => {
             {b.log
               .slice(-rows * 2)
               .reverse()
-              .map(l => (
-                <Text color={l.kind === 'error' ? 'error' : l.kind === 'warn' ? 'warning' : l.kind === 'done' ? 'success' : 'subtle'}>
+              .map((l, i) => (
+                <Text key={`log-${l.at}-${i}`} color={l.kind === 'error' ? 'error' : l.kind === 'warn' ? 'warning' : l.kind === 'done' ? 'success' : 'subtle'}>
                   {dur(b.now - l.at).padStart(6)} · {l.who}: {l.text}
                 </Text>
               ))}
