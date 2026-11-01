@@ -49,8 +49,10 @@ import {
   steadyTemp,
   streaks,
   turnFeed,
+  turnOver,
   withSession,
   withVitals,
+  wouldLoop,
 } from '../hooks/core'
 import type { Call, Lifetime } from '../types'
 
@@ -423,6 +425,27 @@ test('battery and memory limits join the heat guard only when set', async () => 
   expect(refuse(v, parseConfig({ pauseOnBattery: true }))).toBe('running on battery')
   expect(refuse({ ...v, discharging: false }, parseConfig({ maxMemPct: 90 }))).toContain('memory at 95%')
   expect(refuse(v, parseConfig({ guard: false, pauseOnBattery: true }))).toBe(null)
+})
+
+test('the turn-cost stop trips once a live turn passes its limit', async () => {
+  const c = parseConfig({ turnBudgetUsd: 0.5 })
+  const live = startTurn(withCtx(emptyBoard(0), ctx(10, 1)), 1000, null)
+  expect(turnOver(withCtx(live, ctx(12, 1.3)), c)).toBe(null)
+  expect(turnOver(withCtx(live, ctx(12, 1.6)), c)).toContain('$0.60')
+  expect(turnOver(withCtx(live, ctx(12, 9)), cfg)).toBe(null)
+  expect(turnOver({ ...withCtx(live, ctx(12, 9)), running: false }, c)).toBe(null)
+})
+
+test('the loop breaker stops a third identical call, but not reads or a changed input', async () => {
+  let b = emptyBoard(0)
+  b = runCall(b, '1', 'Bash', 'npm run lint', 'fail', 1)
+  expect(wouldLoop(b, 'Bash', 'npm run lint')).toBe(false)
+  b = runCall(b, '2', 'Bash', 'npm run lint', 'fail', 2)
+  expect(wouldLoop(b, 'Bash', 'npm run lint')).toBe(true)
+  expect(wouldLoop(b, 'Bash', 'npm run lint -- --fix')).toBe(false)
+  let r = emptyBoard(0)
+  r = runCall(runCall(r, '1', 'Read', 'a.ts', 'ok', 1), '2', 'Read', 'a.ts', 'ok', 2)
+  expect(wouldLoop(r, 'Read', 'a.ts')).toBe(false)
 })
 
 test('re-reads count the repeated tokens; failure streaks need two in a row', async () => {

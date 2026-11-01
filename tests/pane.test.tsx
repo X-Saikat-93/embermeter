@@ -14,14 +14,14 @@ const PANE = {
   },
 } as const
 
-const engine = (on: any) => {
+const engine = (on: any, usd: () => number = () => 0.5) => {
   on('command.register', () => ({ value: { command: 'embermeter' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: {} }))
   on('clock.now', () => ({ value: 1000 }))
   on('clock.every', () => ({ value: undefined }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: 40000, percent: 20 }, rateLimits: [], cost: { usd: 0.5 } } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: 40000, percent: 20 }, rateLimits: [], cost: { usd: usd() } } }))
   on('fs.read', () => ({ value: '50000' }))
   on('store.get', () => ({ value: null }))
   on('store.set', () => ({ value: undefined }))
@@ -85,4 +85,40 @@ test('the band above the prompt draws as text in the terminal', async ($, on) =>
   const ui = await $.ui.mount({ plugin: 'embermeter', component: 'AbovePrompt', surface: 'terminal', props: {} } as any)
   expect(await ui.find({ type: 'Text', text: /ctx [█░]+ 20%/ })).toBeTruthy()
   await ui.unmount()
+})
+
+test('the loop breaker refuses a third identical call and records it', { options: { loopBreak: true } }, async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm run lint' })).deny).toBe(undefined)
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm run lint' })).deny).toBe(undefined)
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm run lint' })).deny).toMatch(/loop breaker/)
+  expect((await $.tool.call({ tool: 'Bash', command: 'npm run lint -- --fix' })).deny).toBe(undefined)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props } })
+  await ui.press({ key: 'tab-log' })
+  expect(await ui.find({ type: 'Text', text: /guard: held · Bash · loop breaker/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('the loop breaker stays out of the way unless turned on', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  for (let i = 0; i < 4; i++) expect((await $.tool.call({ tool: 'Bash', command: 'npm run lint' })).deny).toBe(undefined)
+})
+
+test('the turn-cost stop holds tools once a turn passes its limit', { options: { turnBudgetUsd: 0.25 } }, async ($, on) => {
+  let usd = 0.5
+  engine(on, () => usd)
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('session.measure', () => ({ changed: ['cost'] }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' } as any)
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBe(undefined)
+  usd = 0.9
+  await $.session.measure({ context: { window: 200000, tokens: 40000, percent: 20 }, rateLimits: [], changed: ['cost'] } as any)
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toMatch(/turn-cost stop/)
+  // A subagent spends the same turn's money, so its calls are held too.
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'sub-1' } as any)).deny).toMatch(/turn-cost stop/)
 })

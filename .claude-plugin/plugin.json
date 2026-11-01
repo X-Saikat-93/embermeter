@@ -59,6 +59,18 @@
       "type": "number",
       "default": 10
     },
+    "turnBudgetUsd": {
+      "title": "Turn-cost stop (USD)",
+      "description": "Refuse further tool calls once one turn has cost this much, so Claude stops and asks; 0 turns it off",
+      "type": "number",
+      "default": 0
+    },
+    "loopBreak": {
+      "title": "Loop breaker",
+      "description": "Refuse a third identical tool call in a row (same tool, same input), so Claude changes approach instead of looping",
+      "type": "boolean",
+      "default": false
+    },
     "quietHours": {
       "title": "Quiet hours",
       "description": "Hours with no toasts, as start-end in 24h local time (for example 22-7); the panel keeps updating. Empty turns it off",

@@ -15,7 +15,9 @@ import {
   estTokens,
   isHeavy,
   sessionStat,
+  turnOver,
   withSession,
+  wouldLoop,
   finishCall,
   gitDirOf,
   health,
@@ -231,6 +233,22 @@ const resetBoard = async ($: any) => {
 // The terminal has no Svg, yet resolve still hands one back that draws nothing; go by the surface.
 const vector = (e: any) => e.surface !== 'terminal'
 
+// Why a call is held by the turn-cost stop or the loop breaker, or null. The stop holds subagents' calls too, since
+// they spend the same turn's money; the loop breaker watches the main thread only, where calls do not interleave.
+const hold = (b: Board, tool: string, detail: string, isAgent: boolean): { why: string; ask: string } | null => {
+  const over = turnOver(b, cfg)
+  if (over) return { why: `turn-cost stop: ${over}`, ask: 'Stop calling tools, summarise what is done and ask the user how to continue.' }
+  if (!isAgent && cfg.loopBreak && wouldLoop(b, tool, detail)) return { why: `loop breaker: this exact ${tool} call already ran twice in a row`, ask: 'Change the approach (different input or tool) or ask the user.' }
+  return null
+}
+
+async function denyHeld($: any, tool: string, held: { why: string; ask: string }) {
+  await set($, x => ({ ...x, guardBlocks: x.guardBlocks + 1 }))
+  await note($, 'guard', `held · ${tool} · ${held.why}`, 'error')
+  $.ui.toast(`Embermeter · ${held.why}`)
+  return { deny: `${$.plugin.name}: ${held.why}. ${held.ask}` }
+}
+
 const openPane = async ($: any) => $.ui.open({ id: PANE, title: 'Embermeter', columns: 82 })
 
 // ---------------------------------------------------------------- the mod
@@ -354,15 +372,18 @@ export const register: Register = (on, options) => {
     return verdict
   }).catch(($, e, next) => next(e))
 
+  // Every call is recorded, a subagent's flagged as such. The turn-cost stop and the loop breaker (both off unless
+  // configured) answer here, before the tool runs, so a held call is logged as denied like any other.
   on('tool.call', async ($, e, next) => {
     const input = e as any
+    const held = hold(await get($), String(e.tool), describe(input), Boolean(input.agentId))
     const at = await $.clock.now()
     const call: Call = { id: e.tool_use_id, tool: String(e.tool), detail: describe(input), status: 'run', agent: Boolean(input.agentId), at, ms: null }
     const file = input.file_path ?? input.notebook_path
     await set($, b =>
       startCall(b, call, { file: typeof file === 'string' ? file : undefined, command: typeof input.command === 'string' ? input.command : undefined, agentId: input.agentId }, cfg.prefix),
     )
-    const ran = await next(e)
+    const ran = held ? await denyHeld($, String(e.tool), held) : await next(e)
     const status: CallStatus = ran.deny !== undefined ? 'denied' : ran.isError === true ? 'fail' : 'ok'
     const end = await $.clock.now()
     await set($, b => finishCall(b, call.id, status, end - at, estTokens((ran as any).text)))

@@ -22,6 +22,8 @@ export type Cfg = {
   band: boolean
   alerts: boolean
   // Guardrails, all off by default.
+  turnBudgetUsd: number
+  loopBreak: boolean
   pauseOnBattery: boolean
   maxMemPct: number
 }
@@ -88,6 +90,8 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     openOnStart: o.openOnStart !== false,
     band: o.band !== false,
     alerts: o.alerts !== false,
+    turnBudgetUsd: num(o.turnBudgetUsd, 0, 0, 100000),
+    loopBreak: o.loopBreak === true,
     pauseOnBattery: o.pauseOnBattery === true,
     maxMemPct: num(o.maxMemPct, 0, 0, 100),
   }
@@ -711,6 +715,21 @@ export const steadyTemp = (b: Board): number | null => {
 }
 
 export const steadyVitals = (b: Board): Vitals | null => (b.vitals ? { ...b.vitals, tempC: steadyTemp(b) } : null)
+
+// The turn-cost stop: the live turn's spend once it passes `turnBudgetUsd`, else null.
+export const turnOver = (b: Board, cfg: Cfg): string | null => {
+  if (cfg.turnBudgetUsd <= 0 || !b.running || b.costAtStart === null || b.ctx?.usd == null) return null
+  const spent = b.ctx.usd - b.costAtStart
+  return spent >= cfg.turnBudgetUsd ? `this turn has cost ${money(spent)} (limit ${money(cfg.turnBudgetUsd)})` : null
+}
+
+// The loop breaker: the call about to run would be the third identical one in a row. Read is left out, as in loopWatch.
+export const wouldLoop = (b: Board, tool: string, detail: string): boolean => {
+  if (tool === 'Read' || detail === '') return false
+  const done = b.calls.filter(c => !c.agent && c.status !== 'run')
+  const last2 = done.slice(-2)
+  return last2.length === 2 && last2.every(c => c.tool === tool && c.detail === detail)
+}
 
 // ---------------------------------------------------------------- instruments
 
