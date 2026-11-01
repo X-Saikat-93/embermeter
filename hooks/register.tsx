@@ -35,6 +35,7 @@ import {
   startCall,
   startTurn,
   toComposition,
+  steadyVitals,
   withCtx,
   withVitals,
 } from './core'
@@ -388,7 +389,7 @@ export const register: Register = (on, options) => {
   // Heat guard: heavy Bash jobs wait while the laptop is hot or low on battery. A guard fault lets the call through.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!cfg.guard || !isHeavy(e.command, cfg)) return next(e)
-    const why = refuse((await get($)).vitals, cfg)
+    const why = refuse(steadyVitals(await get($)), cfg)
     if (!why) return next(e)
     await set($, b => ({ ...b, guardBlocks: b.guardBlocks + 1 }))
     await note($, 'guard', `held · ${short(e.command, 60)} · ${why}`, 'error')
@@ -428,7 +429,7 @@ export const register: Register = (on, options) => {
     const site = `pane:${tab}`
     const D = drawContext(cfg, drawn[site] ?? null, cols)
     drawn[site] = b
-    const warn = refuse(b.vitals, cfg)
+    const warn = refuse(steadyVitals(b), cfg)
 
     // Surfaces without Svg (the terminal) get the same data as text lines.
     const lines = (ls: Line[]) => (

@@ -577,7 +577,7 @@ export const newAlerts = (b: Board, cfg: Cfg, today: number | null = null): { ke
   const c = b.ctx?.pct
   add('ctx70', c != null && c >= 70, `Context at ${Math.round(c ?? 0)}%: consider /compact soon`)
   add('ctx85', c != null && c >= 85, `Context at ${Math.round(c ?? 0)}%: compaction is near`)
-  const t = b.vitals?.tempC
+  const t = steadyTemp(b)
   add('hot', t != null && t > cfg.maxTempC, `Laptop at ${Math.round(t ?? 0)}C: heavy jobs are paused`)
   const usd = b.ctx?.usd ?? 0
   if (cfg.budgetUsd > 0) {
@@ -675,6 +675,16 @@ export const refuse = (v: Vitals | null, cfg: Cfg): string | null => {
   return null
 }
 
+// Vitals with the temperature steadied: the lower of the last two readings, so one spiky sample (a process
+// starting) never holds a job or raises the alarm, while a laptop that stays hot does within one more sample.
+export const steadyTemp = (b: Board): number | null => {
+  // No reading now means unknown, never an old reading from the history.
+  if (b.vitals?.tempC == null) return null
+  const last = b.tempHist.slice(-2)
+  return last.length ? Math.min(...last) : (b.vitals?.tempC ?? null)
+}
+
+export const steadyVitals = (b: Board): Vitals | null => (b.vitals ? { ...b.vitals, tempC: steadyTemp(b) } : null)
 // ---------------------------------------------------------------- formatting
 
 export const short = (s: unknown, n: number) => {

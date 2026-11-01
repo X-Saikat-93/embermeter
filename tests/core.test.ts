@@ -43,6 +43,8 @@ import {
   withCtx,
   commandHeads,
   isHeavy,
+  steadyTemp,
+  withVitals,
 } from '../hooks/core'
 import type { Call, Lifetime } from '../types'
 
@@ -388,4 +390,20 @@ test('wrappers and shells cannot hide a heavy job', async () => {
     expect(isHeavy(c, cfg)).toBe(true)
   expect(commandHeads('sudo -u bob ls -la')).toEqual(['ls -la'])
   expect(isHeavy('bash -c "echo test"', cfg)).toBe(false)
+})
+
+test('an unknown temperature never falls back to an old reading', async () => {
+  const hot = withVitals(withVitals(emptyBoard(0), { tempC: 95, pct: 90, discharging: false, load1: 1, memPct: 40 }, 0), { tempC: 95, pct: 90, discharging: false, load1: 1, memPct: 40 }, 0)
+  expect(steadyTemp(hot)).toBe(95)
+  expect(steadyTemp(withVitals(hot, { tempC: null, pct: 90, discharging: false, load1: 1, memPct: 40 }, 0))).toBe(null)
+})
+
+test('the heat guard counts a hot laptop only when two readings agree', async () => {
+  const at = (b: ReturnType<typeof emptyBoard>, t: number) => withVitals(b, { tempC: t, pct: 90, discharging: false, load1: 1, memPct: 40 }, 0)
+  const spike = at(at(emptyBoard(0), 50), 93)
+  expect(steadyTemp(spike)).toBe(50)
+  const hot = at(spike, 91)
+  expect(steadyTemp(hot)).toBe(91)
+  expect(newAlerts(spike, cfg).some(a => a.key === 'hot')).toBe(false)
+  expect(newAlerts(hot, cfg).some(a => a.key === 'hot')).toBe(true)
 })

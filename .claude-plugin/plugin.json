@@ -73,7 +73,7 @@
     },
     "maxTempC": {
       "title": "Temperature limit (C)",
-      "description": "Above this CPU temperature the heat guard pauses heavy jobs",
+      "description": "Above this CPU temperature (the lower of the last two readings, so one spike does not count) the heat guard pauses heavy jobs",
       "type": "number",
       "default": 80
     },
