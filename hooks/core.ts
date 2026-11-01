@@ -3,6 +3,7 @@ import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, Day
 
 export type Theme = 'night' | 'day' | 'washi'
 export type Motion = 'smooth' | 'reduced' | 'off'
+export type StatusPreset = 'full' | 'minimal' | 'cost' | 'off'
 
 export type Cfg = {
   theme: Theme
@@ -26,6 +27,8 @@ export type Cfg = {
   loopBreak: boolean
   pauseOnBattery: boolean
   maxMemPct: number
+  // Presentation.
+  statusLine: StatusPreset
 }
 
 // A heavy word must stand alone, so paths and file names (`tests/a.test.ts`, `vite.config.ts`, `--ci`) don't count.
@@ -94,6 +97,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     loopBreak: o.loopBreak === true,
     pauseOnBattery: o.pauseOnBattery === true,
     maxMemPct: num(o.maxMemPct, 0, 0, 100),
+    statusLine: o.statusLine === 'minimal' || o.statusLine === 'cost' || o.statusLine === 'off' ? o.statusLine : 'full',
   }
 }
 
@@ -876,3 +880,88 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
   ]
   return lines.filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n').trim()
 }
+
+// ---------------------------------------------------------------- status line
+
+// The status line for the chosen preset; undefined clears it.
+export const statusLine = (b: Board, cfg: Cfg): string | undefined => {
+  if (cfg.statusLine === 'off') return undefined
+  const v = b.vitals
+  const c = b.ctx
+  const grade = health(b, cfg).grade
+  const state = b.running ? `▸ ${dur(b.now - b.turnStart)}` : 'idle'
+  const ctx = c?.pct != null ? `ctx ${Math.round(c.pct)}%` : ''
+  const parts =
+    cfg.statusLine === 'minimal'
+      ? [grade, state, ctx]
+      : cfg.statusLine === 'cost'
+        ? [money(c?.usd), costRate(b).perHour !== null ? `${money(costRate(b).perHour)}/h` : '', cfg.budgetUsd > 0 ? `of ${money(cfg.budgetUsd)}` : '', turnOver(b, cfg) ? 'turn stop' : '']
+        : [
+            grade,
+            state,
+            ctx,
+            c?.usd != null ? money(c.usd) : '',
+            v?.tempC != null ? `${Math.round(v.tempC)}°` : '',
+            v?.pct != null ? `bat ${v.pct}%${v.discharging ? '↓' : ''}` : '',
+            b.agents.some(a => a.status === 'run') ? `${b.agents.filter(a => a.status === 'run').length} agents` : '',
+          ]
+  return parts.filter(p => p && p !== '?').join(' · ') || undefined
+}
+
+// ---------------------------------------------------------------- export
+
+// The board as JSON for scripts and spreadsheets: totals, turns, tools, files, agents and the session history.
+export const exportJson = (b: Board, cfg: Cfg, life: Lifetime | null): string =>
+  JSON.stringify(
+    {
+      startedAt: new Date(b.startedAt).toISOString(),
+      health: health(b, cfg),
+      branch: b.branch,
+      model: b.model,
+      context: b.ctx,
+      tokens: b.tokens,
+      turns: b.turns.map(t => ({ ...t, at: new Date(t.at).toISOString() })),
+      models: modelSplit(b),
+      tools: toolBoard(b),
+      files: fileBoard(b),
+      agents: b.agents,
+      gate: b.gate,
+      guardBlocks: b.guardBlocks,
+      compactions: b.compactions,
+      history: life?.recent ?? [],
+    },
+    null,
+    2,
+  )
+
+// A text cell, quoted when it must be. One a spreadsheet would read as a formula (=, +, -, @, tab, CR) gets a
+// leading apostrophe, so a model name or file path can never run as one.
+const csvText = (v: string) => {
+  const t = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+}
+
+// A number cell, written as is, so a negative context change stays a number.
+const csvNum = (v: number | string | null | undefined) => (v == null ? '' : String(v))
+
+// One row per turn, ready for a spreadsheet.
+export const turnsCsv = (b: Board): string =>
+  [
+    'at,ms,usd,tools,ctx_delta_pct,reason,model,input,output,cache_read,cache_write,fed_most',
+    ...b.turns.map(t =>
+      [
+        new Date(t.at).toISOString(),
+        csvNum(t.ms),
+        csvNum(t.usd?.toFixed(4)),
+        csvNum(t.tools),
+        csvNum(t.ctxDelta?.toFixed(1)),
+        csvText(t.reason),
+        csvText(t.model),
+        csvNum(t.tokens?.input),
+        csvNum(t.tokens?.output),
+        csvNum(t.tokens?.cacheRead),
+        csvNum(t.tokens?.cacheWrite),
+        csvText(t.fed?.[0] ? `${t.fed[0].name} ${t.fed[0].out}` : ''),
+      ].join(','),
+    ),
+  ].join('\n')

@@ -122,3 +122,18 @@ test('the turn-cost stop holds tools once a turn passes its limit', { options: {
   // A subagent spends the same turn's money, so its calls are held too.
   expect((await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'sub-1' } as any)).deny).toMatch(/turn-cost stop/)
 })
+
+test('/embermeter csv and export copy the session', async ($, on) => {
+  const copied: string[] = []
+  engine(on)
+  on('ui.copy', (_: unknown, e: any) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } } as any
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect((await $.command.run({ command: 'embermeter', args: 'csv' } as any)).text).toMatch(/CSV/)
+  expect(copied[0]?.startsWith('at,ms,usd,')).toBe(true)
+  expect((await $.command.run({ command: 'embermeter', args: 'export' } as any)).text).toMatch(/JSON/)
+  expect(JSON.parse(copied[1] ?? '{}').health.grade).toBe('A')
+})

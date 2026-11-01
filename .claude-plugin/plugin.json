@@ -35,6 +35,13 @@
       "type": "boolean",
       "default": true
     },
+    "statusLine": {
+      "title": "Status line",
+      "description": "full: grade, state, context, cost, temperature, battery and agents; minimal: grade, state and context; cost: spend and burn rate; off: no status line",
+      "type": "string",
+      "options": ["full", "minimal", "cost", "off"],
+      "default": "full"
+    },
     "alerts": {
       "title": "Alerts",
       "description": "Toast once when context, temperature, budget or a rate limit crosses its threshold",

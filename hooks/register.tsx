@@ -13,14 +13,16 @@ import {
   endAgent,
   endTurn,
   estTokens,
+  exportJson,
   isHeavy,
   sessionStat,
+  statusLine,
   turnOver,
+  turnsCsv,
   withSession,
   wouldLoop,
   finishCall,
   gitDirOf,
-  health,
   isQuiet,
   kfmt,
   log,
@@ -159,22 +161,8 @@ const refreshBranch = async ($: any) => {
 
 // ---------------------------------------------------------------- side effects
 
-const statusText = (b: Board) => {
-  const v = b.vitals
-  const c = b.ctx
-  const live = b.agents.filter(a => a.status === 'run').length
-  return [
-    health(b, cfg).grade,
-    b.running ? `▸ ${dur(b.now - b.turnStart)}` : 'idle',
-    c?.pct != null ? `ctx ${Math.round(c.pct)}%` : '',
-    c?.usd != null ? money(c.usd) : '',
-    v?.tempC != null ? `${Math.round(v.tempC)}°` : '',
-    v?.pct != null ? `bat ${v.pct}%${v.discharging ? '↓' : ''}` : '',
-    live ? `${live} agents` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-}
+// The full status line, for alt text whatever the status-line preset.
+const statusText = (b: Board) => statusLine(b, { ...cfg, statusLine: 'full' }) ?? ''
 
 const raise = async ($: any) => {
   const b = await get($)
@@ -205,7 +193,7 @@ const tick = async ($: any) => {
   } else {
     return
   }
-  $.ui.status(statusText(await get($)) || undefined)
+  $.ui.status(statusLine(await get($), cfg))
 }
 
 const saveLife = async ($: any, fn: (l: Lifetime) => Lifetime) => {
@@ -259,8 +247,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'embermeter',
-      description: 'Embermeter dashboard: open, close, report, copy, card, reset, or a tab (overview context spend tools files agents system log)',
-      argumentHint: '[open|close|report|copy|card|reset|<tab>]',
+      description: 'Embermeter dashboard: open, close, report, copy, card, export, csv, reset, or a tab (overview context spend tools files agents system log)',
+      argumentHint: '[open|close|report|copy|card|export|csv|reset|<tab>]',
     })
     const fresh = (await get($)).startedAt === 0
     if (fresh) {
@@ -292,6 +280,11 @@ export const register: Register = (on, options) => {
     if (arg === 'copy') {
       await copyReport($)
       return { text: 'Embermeter report copied to the clipboard.' }
+    }
+    if (arg === 'export' || arg === 'csv') {
+      const b = await get($)
+      await $.ui.copy({ text: arg === 'csv' ? turnsCsv(b) : exportJson(b, cfg, life) })
+      return { text: arg === 'csv' ? `Embermeter: ${b.turns.length} turns copied to the clipboard as CSV.` : 'Embermeter: the session copied to the clipboard as JSON.' }
     }
     if (arg === 'reset') {
       await resetBoard($)
@@ -345,7 +338,7 @@ export const register: Register = (on, options) => {
       const a = (await get($)).agents.find(x => x.id === id)
       if (a) await note($, a.type, `${a.status} · ${dur((a.endedAt ?? now) - a.startedAt)} · ${a.tools} tools`, a.status === 'done' ? 'done' : 'error')
     }
-    $.ui.status(statusText(await get($)) || undefined)
+    $.ui.status(statusLine(await get($), cfg))
     return done
   }).catch(($, e, next) => next(e))
 

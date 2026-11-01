@@ -42,14 +42,17 @@ import {
   toolBoard,
   withCtx,
   commandHeads,
+  exportJson,
   insights,
   isHeavy,
   rereads,
   sessionStat,
+  statusLine,
   steadyTemp,
   streaks,
   turnFeed,
   turnOver,
+  turnsCsv,
   withSession,
   withVitals,
   wouldLoop,
@@ -492,4 +495,33 @@ test('session history keeps one line per session, the last 20', async () => {
   for (let i = 0; i < 30; i++) l = withSession(l, { ...s, at: 1000 + i })
   expect(l.recent?.length).toBe(20)
   expect(l.recent?.[19]?.at).toBe(1029)
+})
+
+test('status line presets', async () => {
+  const b = withCtx(emptyBoard(0), ctx(42, 1.5))
+  expect(statusLine(b, cfg)).toBe('A · idle · ctx 42% · $1.50')
+  expect(statusLine(b, parseConfig({ statusLine: 'minimal' }))).toBe('A · idle · ctx 42%')
+  expect(statusLine(b, parseConfig({ statusLine: 'cost' }))?.startsWith('$1.50')).toBe(true)
+  expect(statusLine(b, parseConfig({ statusLine: 'off' }))).toBe(undefined)
+  expect(parseConfig({ statusLine: 'loud' }).statusLine).toBe('full')
+})
+
+test('export: JSON parses back and CSV quotes what it must', async () => {
+  let b = startTurn(withCtx(emptyBoard(0), ctx(10, 0)), 100, null)
+  b = runCall(b, '1', 'Read', '/x,"y".ts', 'ok', 200, 900, '/x,"y".ts')
+  b = endTurn(b, 400, 300, 'answer', ctx(12, 0.1))
+  const json = JSON.parse(exportJson(b, cfg, null))
+  expect(json.turns.length).toBe(1)
+  expect(json.health.grade).toBe('A')
+  const csv = turnsCsv(b).split('\n')
+  expect(csv[0]?.startsWith('at,ms,usd,')).toBe(true)
+  expect(csv[1]?.endsWith('"/x,""y"".ts 900"')).toBe(true)
+})
+
+test('CSV text that a spreadsheet would run as a formula is neutralised; numbers stay numbers', async () => {
+  let b = startTurn(withCtx(emptyBoard(0), ctx(30, 0)), 100, null)
+  b = { ...endTurn(b, 400, 300, 'answer', ctx(20, 0.1), { model: '=HYPERLINK("http://x")' }) }
+  const row = turnsCsv(b).split('\n')[1] ?? ''
+  expect(row).toContain(`"'=HYPERLINK(""http://x"")"`)
+  expect(row).toContain(',-10.0,')
 })
