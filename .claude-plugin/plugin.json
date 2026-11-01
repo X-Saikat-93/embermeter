@@ -1,6 +1,6 @@
 {
   "name": "embermeter",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Embermeter: an animated live instrument panel for Claude Code, built for VS Code. Health grade, context composition and runway to auto-compact, token and cache analytics, cost burn and budget, rate-limit countdowns, particle flow diagram, tool leaderboard with p95, file heatmap, subagent swimlanes, permission gate, laptop vitals with a heat guard, and lifetime stats",
   "author": { "name": "X-Saikat-93", "url": "https://github.com/X-Saikat-93" },
   "homepage": "https://github.com/X-Saikat-93/embermeter",
