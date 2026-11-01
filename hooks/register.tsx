@@ -320,7 +320,7 @@ export const register: Register = (on, options) => {
       await raise($)
     } else {
       const id = e.agentId
-      await set($, b => endAgent({ ...b, now }, id, e.reason, now))
+      await set($, b => endAgent({ ...b, now }, id, e.reason, now, (e as any).usage ?? null))
       const a = (await get($)).agents.find(x => x.id === id)
       if (a) await note($, a.type, `${a.status} · ${dur((a.endedAt ?? now) - a.startedAt)} · ${a.tools} tools`, a.status === 'done' ? 'done' : 'error')
     }

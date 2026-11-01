@@ -44,6 +44,7 @@ import {
   commandHeads,
   isHeavy,
   steadyTemp,
+  turnFeed,
   withVitals,
 } from '../hooks/core'
 import type { Call, Lifetime } from '../types'
@@ -377,6 +378,9 @@ test('the last seven days are compared with the seven before', async () => {
 
 // ---------------------------------------------------------------- guards and instruments
 
+const runCall = (b: ReturnType<typeof emptyBoard>, id: string, tool: string, detail: string, status: 'ok' | 'fail', at: number, out = 0, file?: string) =>
+  finishCall(startCall(b, { ...call(id, tool, at), detail }, { file }, ''), id, status, 10, out)
+
 test('heavy jobs are judged by each command, never by its arguments', async () => {
   expect(commandHeads('FOO=1 rtk nice -n 10 npm test -- --watch && git status | head')).toEqual(['npm test --', 'git status', 'head'])
   for (const c of ['rtk npm test', 'nice -n 10 cargo build', 'cd x && npx vitest run', 'sudo docker build .', 'a; pnpm install'])
@@ -414,4 +418,11 @@ test('battery and memory limits join the heat guard only when set', async () => 
   expect(refuse(v, parseConfig({ pauseOnBattery: true }))).toBe('running on battery')
   expect(refuse({ ...v, discharging: false }, parseConfig({ maxMemPct: 90 }))).toContain('memory at 95%')
   expect(refuse(v, parseConfig({ guard: false, pauseOnBattery: true }))).toBe(null)
+})
+
+test('subagents add up their tokens', async () => {
+  let b = spawnAgent(emptyBoard(0), { id: 'a', type: 'Explore', desc: '', model: '', status: 'run', startedAt: 0, endedAt: null, tools: 0 })
+  b = endAgent(b, 'a', 'answer', 10, { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 1000 })
+  expect(b.agents[0]).toMatchObject({ status: 'done', tokens: 1120 })
+  expect(endAgent(b, 'a', 'answer', 20).agents[0]?.tokens).toBe(1120)
 })

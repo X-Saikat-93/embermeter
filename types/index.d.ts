@@ -28,6 +28,8 @@ export type Call = {
   agent: boolean
   at: number
   ms: number | null
+  // Estimated tokens the result fed back into the context, once finished.
+  out?: number
 }
 
 // `out`: estimated tokens the tool's results fed back into the context (absent on boards stored before it existed).
@@ -50,6 +52,8 @@ export type Agent = {
   startedAt: number
   endedAt: number | null
   tools: number
+  // Tokens this subagent's turns reported (input, cache and output), when the engine gave usage.
+  tokens?: number
 }
 
 export type Tokens = { input: number; output: number; cacheRead: number; cacheWrite: number }
@@ -63,6 +67,8 @@ export type Turn = {
   reason: string
   model: string
   tokens: Tokens | null
+  // What fed this turn's context most: files or tools, by estimated tokens, heaviest first.
+  fed?: { name: string; out: number }[]
 }
 
 export type Slice = { name: string; tokens: number; kind: string }

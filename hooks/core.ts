@@ -214,7 +214,7 @@ export const finishCall = (b: Board, id: string, status: CallStatus, ms: number,
   const f = call.file ? b.files[call.file] : undefined
   return {
     ...b,
-    calls: b.calls.map(c => (c.id === id ? { ...c, status, ms } : c)),
+    calls: b.calls.map(c => (c.id === id ? { ...c, status, ms, out } : c)),
     stats: { ...b.stats, [call.tool]: stat },
     files: f && call.file && out > 0 ? { ...b.files, [call.file]: { ...f, out: (f.out ?? 0) + out } } : b.files,
   }
@@ -222,9 +222,27 @@ export const finishCall = (b: Board, id: string, status: CallStatus, ms: number,
 
 export const spawnAgent = (b: Board, a: Agent): Board => ({ ...b, agents: tail(b.agents.filter(x => x.id !== a.id), a, 40) })
 
-export const endAgent = (b: Board, id: string, reason: string, at: number): Board => {
+// `usage`: the subagent turn's token usage, added to what it has reported so far.
+export const endAgent = (b: Board, id: string, reason: string, at: number, usage: Usage | null = null): Board => {
   const status: AgentStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'stopped' : 'fail'
-  return { ...b, agents: b.agents.map(a => (a.id === id ? { ...a, status, endedAt: at } : a)) }
+  const t = toTokens(usage)
+  const add = t ? t.input + t.output + t.cacheRead + t.cacheWrite : 0
+  return { ...b, agents: b.agents.map(a => (a.id === id ? { ...a, status, endedAt: at, tokens: (a.tokens ?? 0) + add } : a)) }
+}
+
+// What fed the context during the turn that started at `since`: each file (or, without one, each tool) by estimated
+// tokens, heaviest first.
+export const turnFeed = (b: Board, since: number, n = 3): { name: string; out: number }[] => {
+  const by: Record<string, number> = {}
+  for (const c of b.calls) {
+    if (c.agent || c.at < since || !c.out) continue
+    const key = c.file ? shortPath(c.file, 40) : c.tool
+    by[key] = (by[key] ?? 0) + c.out
+  }
+  return Object.entries(by)
+    .map(([name, out]) => ({ name, out }))
+    .sort((x, y) => y.out - x.out)
+    .slice(0, n)
 }
 
 export const startTurn = (b: Board, at: number, ctx: Ctx | null): Board => ({
@@ -260,6 +278,7 @@ export const endTurn = (b: Board, at: number, ms: number | null, reason: string,
     reason,
     model,
     tokens,
+    fed: turnFeed(b, b.turnStart),
   }
   const key = model || 'unknown'
   const m: ModelStat = b.models[key] ?? { turns: 0, usd: 0, input: 0, output: 0 }
@@ -764,7 +783,7 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
     b.comp ? `- Context mix: ${b.comp.slices.slice().sort((x, y) => y.tokens - x.tokens).slice(0, 5).map(s => `${s.name} ${kfmt(s.tokens)}`).join(' · ')}` : '',
     `- Gate: ${b.gate.allow} allowed · ${b.gate.ask} asked · ${b.gate.deny} denied · ${b.guardBlocks} heat-guard blocks`,
     cfg.prefix && compliance(b) !== null ? `- \`${cfg.prefix}\` prefix compliance: ${compliance(b)}% of ${b.bash.total} commands` : '',
-    `- Subagents: ${b.agents.length} (${b.agents.filter(a => a.status === 'done').length} done)`,
+    `- Subagents: ${b.agents.length} (${b.agents.filter(a => a.status === 'done').length} done)${b.agents.some(a => a.tokens) ? ` · ${kfmt(b.agents.reduce((s, a) => s + (a.tokens ?? 0), 0))} tokens` : ''}`,
     life ? `- All time: ${life.sessions} sessions · ${money(life.usd)} · ${life.turns} turns · ${life.calls} tool calls · last 30 days ${money(monthUsd)}${week && week.change !== null ? ` · last 7 days ${money(week.week)} (${week.change >= 0 ? '+' : ''}${Math.round(week.change * 100)}% on the week before)` : ''}` : '',
     ``,
     rows.length ? `| Tool | Calls | OK | Avg | p95 |\n|---|---:|---:|---:|---:|\n${rows.map(t => `| ${t.tool} | ${t.n} | ${t.okPct}% | ${dur(t.avg)} | ${dur(t.p95)} |`).join('\n')}` : '',
