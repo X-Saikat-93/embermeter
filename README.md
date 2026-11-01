@@ -137,12 +137,17 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 08 | **Tool leaderboard** | Calls, the context each tool fed back, success and failure split, average and p95 duration, and the slowest calls. |
 | 09 | **File heatmap** | Every file read, edited or written, tinted by how much it changed. |
 | 10 | **Subagent swimlanes** | Each subagent on a time grid with its model, duration, tools and outcome. Click one to open its transcript. |
-| 11 | **Heat guard** | Holds heavy Bash jobs (builds, tests, installs, Docker…) while the CPU is over its limit or the battery is low. Claude is told why. |
+| 11 | **Heat guard** | Holds heavy Bash jobs (builds, tests, installs, Docker…) while the CPU stays over its limit or the battery is low; a single spiky reading does not count. It judges each command by its own words, so `grep test` or a commit message about a build stays light. Optional: pause on battery, and a memory limit. Claude is told why. |
 | 12 | **Session report** | A one-click Markdown report, plus totals across every session. An optional meter scores how often commands use a wrapper like `rtk`. `/embermeter card` copies a shareable session card. |
 | 13 | **Loop watch** | Spots the same call three times in a row, or the same call failing three times, and tells you before the tokens burn. A turn that runs past `longTurnMin` gets a nudge too, with what it was last doing. |
 | 14 | **Context fed by tools** | Estimates how many tokens each tool's results put back into the window, so you know whether `Read`, `Bash` or a web fetch is filling it, and which files fed the most. |
 | 15 | **Cost waterfall** | Each turn stacked on the running total, colour-coded, with the budget line, plus cost and tokens split by model. |
 | 16 | **Thirty days** | A calendar of daily spend and turns, from totals kept on your machine, with an optional daily budget and the last seven days against the seven before. |
+| 17 | **Why it costs what it does** | The priciest recent turn and what fed it (files and tools, by tokens), with plain tips: files read again, a tool flooding the context, a cold cache, a full window. |
+| 18 | **Read again** | Files read more than once, and the tokens those repeats cost. |
+| 19 | **Failing in a row** | Tools whose latest calls failed back to back, with the input that failed. |
+| 20 | **Session history** | Your last 20 sessions: grade, length, turns, tool calls, cost and branch. |
+| 21 | **Turn-cost stop and loop breaker** | Opt-in guards: refuse tool calls once one turn passes a cost, or a third identical call in a row, so Claude stops and asks instead of burning tokens. |
 
 </details>
 
@@ -211,6 +216,8 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | `/embermeter report` | Print the session report in the transcript |
 | `/embermeter copy` | Copy the report to the clipboard |
 | `/embermeter card` | Copy a session card (SVG) to share; the pane has a button too |
+| `/embermeter export` | Copy the whole session as JSON: totals, turns, tools, files, agents and history |
+| `/embermeter csv` | Copy one row per turn as CSV, for a spreadsheet |
 | `/embermeter reset` | Zero this session's counters |
 | `/embermeter close` | Close the panel |
 
@@ -220,7 +227,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 {
   "pluginConfigs": {
     "embermeter": {
-      "theme": "washi",       // or "night", "day"
+      "theme": "washi",       // or "night", "day", "contrast"
       "motion": "smooth",     // "reduced" | "off"
       "budgetUsd": 5,         // red line on the cost gauge; 0 = off
       "dailyBudgetUsd": 20,   // across sessions, per calendar day
@@ -238,19 +245,25 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 
 | Option | Default | Meaning |
 |---|---|---|
-| `theme` | `washi` | `washi` (rice paper, sumi and vermilion), `night` (warm ink) or `day` (plain paper) |
+| `theme` | `washi` | `washi` (rice paper, sumi and vermilion), `night` (warm ink), `day` (plain paper) or `contrast` (black ground, bright text) |
 | `motion` | `smooth` | `smooth`: transitions and live animation · `reduced`: transitions only · `off`: static |
 | `openOnStart` | `true` | Open the panel when a session starts |
 | `band` | `true` | Show the strip above the prompt |
+| `terminalDrawing` | `graphics` | In the CLI: `graphics` (coloured cell meters and charts) or `text` (plain lines, for screen readers) |
+| `statusLine` | `full` | `full`, `minimal` (grade, state, context), `cost` (spend and burn rate) or `off` |
 | `alerts` | `true` | Toast once when context (70%, 85%, two turns from compaction), temperature, a budget, a rate limit (90%, or 30 minutes from full), a loop or a long turn crosses its line |
 | `budgetUsd` | `0` | Session budget in USD; `0` turns it off |
 | `dailyBudgetUsd` | `0` | Budget for a calendar day across sessions, alerting at 80% and 100%; `0` turns it off |
 | `longTurnMin` | `10` | Alert when one turn runs longer than this many minutes; `0` turns it off |
+| `turnBudgetUsd` | `0` | Refuse tool calls once one turn has cost this much, so Claude stops and asks; `0` turns it off |
+| `loopBreak` | `false` | Refuse a third identical tool call in a row (same tool and input) |
 | `quietHours` | empty | Hours with no toasts, such as `22-7` (local time). Alerts still go to the log |
 | `guard` | `true` | Heat guard on or off |
 | `maxTempC` | `80` | CPU temperature limit for the heat guard |
 | `minBatteryPct` | `20` | Battery floor for the heat guard, while discharging |
-| `heavyPattern` | built-in | Regular expression for the Bash commands the guard treats as heavy |
+| `pauseOnBattery` | `false` | Also hold heavy jobs whenever the laptop runs on battery |
+| `maxMemPct` | `0` | Also hold heavy jobs while memory use is above this percent; `0` turns it off |
+| `heavyPattern` | built-in | Regular expression for the Bash commands the guard treats as heavy. It is tested against each command's own words (after wrappers like `rtk`, `nice` or `npx`, plus the subcommand for runners like `npm` or `cargo`), never its arguments |
 | `commandPrefix` | empty | Wrapper the compliance meter looks for; empty turns it off |
 | `threads` | `0` | CPU threads used to scale the load gauge; `0` detects them |
 
@@ -259,7 +272,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | Surface | What you get |
 |---|---|
 | **VS Code**, **desktop app** | The full animated panel, strip and status line |
-| **Terminal** | No SVG there. The same data as text, plus the status line and `/embermeter report` |
+| **Terminal (CLI)** | The full panel drawn in coloured cells: heat-gradient meters, sparklines and swimlanes. While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
 | **Linux** | Vitals and heat guard from `/sys` and `/proc` |
 | **macOS, Windows** | Vitals read `–` and the heat guard rests. Everything else works |
 
@@ -279,6 +292,7 @@ flowchart LR
     R[register.tsx<br/>hooks · sensors · commands]
     C[core.ts<br/>pure state + analytics]
     D[draw.ts<br/>pure SVG builders]
+    T[term/<br/>cells + motion]
   end
   S[/sys · /proc<br/>read-only/]
   E --> R
@@ -286,17 +300,20 @@ flowchart LR
   S --> R
   R -->|board| C
   C -->|board| D
+  C -->|board| T
   D -->|SVG| P[Panel · strip · status line]
+  T -->|Raster cells| P
 ```
 
 | Layer | Role |
 |---|---|
-| `hooks/register.tsx` | The only file that touches the engine: events, sensors, `/embermeter`, the panel |
+| `hooks/register.tsx` | Engine wiring: events, sensors, guards, `/embermeter`, the panel |
 | `hooks/core.ts` | Pure state and analytics: forecast, health, alerts, heat-guard decision, report. No I/O, unit-tested |
 | `hooks/draw.ts` | The design system and pure SVG builders: gauges, sparklines, flow, composition, swimlanes, heatmap |
+| `hooks/term/` | The terminal panel: coloured cell pages from the same numbers, and the frame loop that animates live blocks |
 | `types/index.d.ts` | The state contract, checked by `claude plugin validate` |
 
-**Running costs.** It runs one timer. The clock ticks each second only while work runs. Sensors are read every 5 seconds, and the context breakdown at most every 15. Every list is capped, so memory stays flat across long sessions. The full engineering tour is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Running costs.** One timer drives the data: the clock ticks each second only while work runs. In the terminal a second timer animates live blocks at about 7 frames a second, and sends nothing while idle or with `motion` other than `smooth`. Sensors are read every 5 seconds, and the context breakdown at most every 15. Every list is capped, so memory stays flat across long sessions. The full engineering tour is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 <p align="right"><sub><a href="#top">↑ back to contents</a></sub></p>
 

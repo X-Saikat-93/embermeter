@@ -1,15 +1,20 @@
 # Architecture
 
-Embermeter is one Claude Code hooks module, split into three layers so the parts that matter can be tested without the engine.
+Embermeter is one Claude Code hooks module, split into layers so the parts that matter can be tested without the engine.
 
 ```
-hooks/register.tsx   engine wiring      the only code that touches `$`
+hooks/register.tsx      engine wiring      every event hook, sensors, guards, commands
         │  Board (immutable value)
         ▼
-hooks/core.ts        state + analytics  pure functions, no I/O
+hooks/core.ts           state + analytics  pure functions, no I/O
         │  Board + Cfg
-        ▼
-hooks/draw.ts        design system      pure SVG strings
+        ├──────────────────────────────┐
+        ▼                              ▼
+hooks/draw.ts           SVG pages      hooks/term/pages.ts      terminal pages (coloured segments)
+                                               ▼
+                                       hooks/term/raster.ts     cells, theme colours, motion, base64
+                                               ▼
+                                       hooks/term/view.tsx      Raster blocks + the frame loop ($.ui.blit)
 ```
 
 ## Data flow
@@ -92,7 +97,9 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 
 ## Rendering
 
-- **Surfaces.** VS Code and the desktop app draw SVG (`Svg` element, image mode). The terminal gets the same data as `Text`. Hover doesn't run in image mode, so every value is printed, not hidden behind a tooltip.
+- **Surfaces.** VS Code and the desktop app draw SVG (`Svg` element). The desktop draws it interactive, so turn bars carry hover tooltips; VS Code draws an image, so every value is also printed. The terminal has no `Svg`, though `$.ui.resolve` still returns one that renders nothing, so the pane picks its drawing by `e.surface`, never by the element's presence.
+- **Terminal.** Each tab is a list of lines of coloured segments (`term/segments.ts`), split into blocks at each title. Each block is one `Raster`: `raster.ts` packs every cell as three little-endian u32s (code point, foreground, background), with theme colours as mid tones that read on dark and light terminals and the terminal's own foreground for plain text. Any code point a Raster would refuse becomes `?`, and every line is clipped to the body width with `…`, so no input can blank a tab.
+- **Terminal motion.** Segments may carry `spin`, `pulse` or `flow`. Blocks with motion are kept in a frame table; a 140 ms timer re-encodes them at the next phase and repaints them with `$.ui.blit`, never a full redraw. A block that is no longer mounted answers `deny` and leaves the table, and only live work emits motion, so the loop sends nothing while idle.
 - **Motion** is SMIL only, with no script: `ease()` animates from the previous value with an ease-out-quint spline. Loops (particles, pulses, breathing) are emitted only while their stage is active, and only with `motion: smooth`.
 - **Layout.** `drawContext(cfg, prev, columns)` picks a 640 px canvas at 76 columns or more, otherwise 400 px. Every page lays itself out for both widths.
 - **Safety.** `txt()` is the only place text enters SVG, and it escapes `& < > "`.
@@ -101,5 +108,6 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 
 - `tests/core.test.ts` covers every analytic and transition in `core.ts`.
 - `tests/draw.test.ts` draws the Spend, Tools and Context pages at both widths and checks that user text arrives escaped.
-- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, then drives a tool call through it.
+- `tests/term.test.ts` checks the cell encoding byte for byte, glyph safety, meter precision, heat colours, motion frames and that every page fits the narrowest width.
+- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards and `/embermeter export` through the real hooks.
 - `scripts/render-docs.ts` renders every page from a fixed sample session. CI runs it as a smoke test, and contributors use it to refresh the README images.

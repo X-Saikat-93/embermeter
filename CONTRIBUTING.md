@@ -27,9 +27,11 @@ node scripts/render-art.ts   # regenerate the README art in docs/art/
 |---|---|---|
 | `hooks/core.ts` | State, analytics, formatting | Pure: no `$`, no I/O. Every function is testable. |
 | `hooks/draw.ts` | Design system and SVG builders | Pure strings. Colours only from `PALETTES`. Text only through `txt()`. |
-| `hooks/register.tsx` | Engine wiring: hooks, sensors, commands, pane | The only file that touches `$`. Every hook ends in `.catch(($, e, next) => next(e))`. |
+| `hooks/term/segments.ts` · `pages.ts` · `raster.ts` | The terminal's drawing: coloured segments, what each tab says, and the cell encoding with motion | Pure: no `$`. Numbers come from `core.ts`, so the terminal and the SVG pages always agree. Every line is clipped with `fit()`; every glyph goes through `safeGlyph()`. |
+| `hooks/term/view.tsx` | Mounting terminal blocks and the frame loop | Touches `$` only to blit frames. A function that takes `$` from another file must be a `function` declaration, which the engine requires. |
+| `hooks/register.tsx` | Engine wiring: hooks, sensors, commands, pane | Owns every event hook. Every hook ends in `.catch(($, e, next) => next(e))`. The engine allows one matcher-less hook per event, so related guards share one. |
 | `types/index.d.ts` | The `$.state` contract | Add a field here before you store it. Make it optional or handle it in `normalize()`, so older stored boards still load. |
-| `tests/` | `core.test.ts` (logic), `draw.test.ts` (pages and escaping), `pane.test.tsx` (UI on every surface) | New logic gets a test. |
+| `tests/` | `core.test.ts` (logic), `draw.test.ts` (pages and escaping), `term.test.ts` (cells, motion, widths), `pane.test.tsx` (UI on every surface, guards, commands) | New logic gets a test. |
 | `scripts/render-docs.ts` | Panel screenshots for the README | Uses the same sample session for every image. |
 | `scripts/render-art.ts` | README art: hero, section plates, cluster, spec sheet, sign-off | Colours come from `PALETTES`; keep the operator's-manual voice. |
 
