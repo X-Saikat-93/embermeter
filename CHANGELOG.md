@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-01
+
+### Fixed
+- **Terminal pane and strip were blank.** The terminal has no `Svg`, yet the drawing table still hands one back that draws nothing, so the pane and the strip above the prompt showed empty in the CLI. On the terminal every tab, the header and the strip are now drawn as text: block meters, sparklines, tables and swimlanes, from the same numbers as the pictures.
+- When the pane cannot open on start (the terminal seats an unasked pane only from 144 columns), a toast now says `/embermeter` opens it.
+
 ## [1.2.0] - 2026-11-01
 
 ### Added
@@ -62,7 +68,8 @@ First public release.
 ### Security
 - No network, no file writes, no processes. Every hook fails open. All SVG text is escaped.
 
-[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/X-Saikat-93/embermeter/releases/tag/v1.0.0
