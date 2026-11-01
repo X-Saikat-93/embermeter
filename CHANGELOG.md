@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **Terminal graphics.** The CLI pane and strip are drawn in coloured cells: heat-gradient meters with eighth-cell precision, sparklines coloured by height, a stacked context bar, swimlanes and a file heatmap. `terminalDrawing: text` keeps plain lines.
+- **Terminal motion.** While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters and agent lanes, about 7 frames a second. Only the blocks that move are repainted, and nothing is sent while idle or with `motion` other than `smooth`.
+- **Why it costs what it does:** the priciest recent turn and the files and tools that fed it, with plain tips, on the Overview and in the report.
+- **Read again:** files read more than once and the tokens the repeats cost.
+- **Failing in a row:** tools whose latest calls failed back to back.
+- **Tokens per subagent** on the swimlanes.
+- **Session history:** the last 20 sessions with grade, length, turns, calls, cost and branch, on the Spend tab.
+- **Turn-cost stop** (`turnBudgetUsd`) and **loop breaker** (`loopBreak`): opt-in guards that refuse tool calls once a turn passes a cost, or a third identical call in a row.
+- **Heat guard options:** `pauseOnBattery` and `maxMemPct`.
+- **Contrast theme** (`theme: contrast`) for low vision and bright rooms (#1).
+- `/embermeter export` copies the session as JSON, `/embermeter csv` one row per turn.
+- **Status line presets** (`statusLine`): `full`, `minimal`, `cost` or `off`.
+- Hover tooltips on turn bars in the desktop app.
+
+### Fixed
+- The heat guard no longer treats arguments as commands: `grep -n "test"` or `git commit -m "fix the build"` stay light. It judges each part of a command line by its command word, plus the subcommand for runners like `npm` or `cargo`.
+- Wrappers no longer hide a heavy job from the heat guard: `bash -c "npm test"`, `timeout 600 npm test`, `sudo -u ci docker build` and `(cd app && npm run build)` are judged by the command they run.
+- The heat guard and the heat alert use the lower of the last two temperature readings, so one spiky sample no longer holds jobs. A missing reading counts as unknown, never as an old one.
+
 ## [1.2.1] - 2026-11-01
 
 ### Fixed
