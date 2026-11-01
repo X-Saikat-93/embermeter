@@ -11,9 +11,9 @@
   "userConfig": {
     "theme": {
       "title": "Theme",
-      "description": "washi: rice paper, sumi ink and a vermilion sun; night: warm ink instrument panel; day: plain paper. Each graphic paints its own ground, so any of them reads on any editor theme",
+      "description": "washi: rice paper, sumi ink and a vermilion sun; night: warm ink instrument panel; day: plain paper; contrast: black ground and bright text for low vision and bright rooms. Each graphic paints its own ground, so any of them reads on any editor theme",
       "type": "string",
-      "options": ["washi", "night", "day"],
+      "options": ["washi", "night", "day", "contrast"],
       "default": "washi"
     },
     "motion": {

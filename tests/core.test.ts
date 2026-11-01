@@ -525,3 +525,7 @@ test('CSV text that a spreadsheet would run as a formula is neutralised; numbers
   expect(row).toContain(`"'=HYPERLINK(""http://x"")"`)
   expect(row).toContain(',-10.0,')
 })
+
+test('the contrast theme parses', async () => {
+  expect(parseConfig({ theme: 'contrast' }).theme).toBe('contrast')
+})

@@ -1,7 +1,7 @@
 // Pure logic: no `$`, no I/O. Everything here is unit-tested in tests/core.test.ts.
 import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, DayStat, FileStat, Lifetime, Limit, LimitTrack, LogKind, ModelStat, SessionStat, Tokens, ToolStat, Turn, Vitals } from '../types'
 
-export type Theme = 'night' | 'day' | 'washi'
+export type Theme = 'night' | 'day' | 'washi' | 'contrast'
 export type Motion = 'smooth' | 'reduced' | 'off'
 export type StatusPreset = 'full' | 'minimal' | 'cost' | 'off'
 
@@ -77,7 +77,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     heavy = new RegExp(DEFAULT_HEAVY)
   }
   return {
-    theme: o.theme === 'night' || o.theme === 'day' ? o.theme : 'washi',
+    theme: o.theme === 'night' || o.theme === 'day' || o.theme === 'contrast' ? o.theme : 'washi',
     motion: o.motion === 'reduced' || o.motion === 'off' ? o.motion : 'smooth',
     maxTempC: num(o.maxTempC, 80, 40, 110),
     minBatteryPct: num(o.minBatteryPct, 20, 0, 100),

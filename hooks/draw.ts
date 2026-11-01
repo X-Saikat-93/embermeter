@@ -96,6 +96,22 @@ export const PALETTES: Record<Theme, Pal> = {
     rust: '#86201b',
     rose: '#b36d66',
   },
+  // High contrast for low vision and bright rooms: near-black ground, every text colour at least 7:1 on it.
+  contrast: {
+    ground: '#000000',
+    panel: '#0d0d0d',
+    line: '#7a7a7a',
+    grid: '#2e2e2e',
+    ink: '#ffffff',
+    sub: '#e0e0e0',
+    faint: '#b3b3b3',
+    amber: '#ffd400',
+    sage: '#3ee08a',
+    steel: '#7cc8ff',
+    sand: '#ffd08f',
+    rust: '#ff6b5e',
+    rose: '#ffa8b8',
+  },
 }
 
 const SANS = `Inter, 'Segoe UI', ui-sans-serif, system-ui, sans-serif`
