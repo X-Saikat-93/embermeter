@@ -39,6 +39,8 @@ import {
 } from './core'
 import type { Cfg } from './core'
 import { agents as drawAgents, card, contextPage, drawContext, files as drawFiles, header, overview, spend, strip, system, tools as drawTools } from './draw'
+import type { Line } from './text'
+import { textHeader, textPage, textStrip } from './text'
 
 const PANE = 'embermeter'
 const TABS: { id: Tab; label: string; key: string }[] = [
@@ -222,6 +224,9 @@ const resetBoard = async ($: any) => {
   await tick($)
 }
 
+// The terminal has no Svg, yet resolve still hands one back that draws nothing; go by the surface.
+const vector = (e: any) => e.surface !== 'terminal'
+
 const openPane = async ($: any) => $.ui.open({ id: PANE, title: 'Embermeter', columns: 82 })
 
 // ---------------------------------------------------------------- the mod
@@ -244,7 +249,11 @@ export const register: Register = (on, options) => {
     } else {
       await saveLife($, l => l)
     }
-    if (cfg.openOnStart) void openPane($)
+    // Unasked, a terminal seats the pane only from 144 columns; say how to open it rather than show nothing.
+    if (cfg.openOnStart)
+      void openPane($).then((o: any) => {
+        if (!o?.isPlaced) $.ui.toast('Embermeter: terminal too narrow to dock the pane on start; /embermeter opens it')
+      })
     await tick($)
     await refreshComp($, true)
     $.clock.every(1000, () => tick($))
@@ -390,8 +399,15 @@ export const register: Register = (on, options) => {
     if (!cfg.band || (e as any).props?.hasSurvey) return next(e)
     const b = await get($)
     if (b.vitals === null) return next(e)
-    const { Box, Svg } = $.ui.resolve(e) as any
-    if (!Svg) return next(e)
+    const { Box, Text, Svg } = $.ui.resolve(e) as any
+    if (!vector(e)) {
+      const l = textStrip(b, cfg)
+      return (
+        <Box>
+          <Text {...(l.c ? { color: l.c } : {})}>{l.t}</Text>
+        </Box>
+      )
+    }
     const D = drawContext(cfg, drawn.band ?? null, undefined)
     drawn.band = b
     return (
@@ -402,7 +418,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Svg, Button } = $.ui.resolve(e) as any
+    const { Box, Text, Svg: SvgEl, Button } = $.ui.resolve(e) as any
+    const Svg = vector(e) ? SvgEl : undefined
     const b = await get($)
     const tab = ((await read($, tabAtom)) ?? 'overview') as Tab
     const cols: number | undefined = (e as any).props?.bodyColumns
@@ -412,8 +429,17 @@ export const register: Register = (on, options) => {
     drawn[site] = b
     const warn = refuse(b.vitals, cfg)
 
-    // Surfaces without Svg (the terminal) get the same data as text.
-    const picture = (source: string, alt: string) => (Svg ? <Svg source={source} alt={alt} /> : <Text>{alt}</Text>)
+    // Surfaces without Svg (the terminal) get the same data as text lines.
+    const lines = (ls: Line[]) => (
+      <Box flexDirection="column">
+        {ls.map(l => (
+          <Text {...(l.c ? { color: l.c } : {})} {...(l.b ? { bold: true } : {})}>
+            {l.t}
+          </Text>
+        ))}
+      </Box>
+    )
+    const picture = (source: string, alt: string) => <Svg source={source} alt={alt} />
 
     // Each tab's picture, drawn only for the tab on show; the log tab is text alone.
     const pages: Partial<Record<Tab, () => any>> = {
@@ -425,7 +451,7 @@ export const register: Register = (on, options) => {
       agents: () => picture(drawAgents(D, b), 'Subagent swimlanes'),
       system: () => picture(system(D, b, cfg), 'Machine vitals and guardrails'),
     }
-    const page = pages[tab]?.() ?? null
+    const page = Svg ? (pages[tab]?.() ?? null) : tab === 'log' ? null : lines(textPage(tab, b, cfg, life, cols))
 
     return (
       <Box flexDirection="column" gap="sm">
@@ -445,7 +471,7 @@ export const register: Register = (on, options) => {
             Reset
           </Button>
         </Box>
-        {picture(header(D, b, cfg), `Embermeter · ${statusText(b)}`)}
+        {Svg ? picture(header(D, b, cfg), `Embermeter · ${statusText(b)}`) : lines(textHeader(b, cfg))}
         {warn && (
           <Text color="error" bold>
             Heat guard armed: {warn}. Heavy jobs wait.

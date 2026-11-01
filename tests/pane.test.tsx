@@ -63,3 +63,26 @@ test('the spend tab opens on every surface', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('the terminal draws each tab as text, not one line of alt', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'rtk git status' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Context\s+[█░]+\s+20%/ })).toBeTruthy()
+  await ui.press({ key: 'tab-tools' })
+  expect(await ui.find({ type: 'Text', text: /Tool leaderboard/ })).toBeTruthy()
+  await ui.press({ key: 'tab-system' })
+  expect(await ui.find({ type: 'Text', text: /^Memory/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('the band above the prompt draws as text in the terminal', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ plugin: 'embermeter', component: 'AbovePrompt', surface: 'terminal', props: {} } as any)
+  expect(await ui.find({ type: 'Text', text: /ctx [█░]+ 20%/ })).toBeTruthy()
+  await ui.unmount()
+})
