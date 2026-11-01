@@ -1,7 +1,7 @@
 // SVG drawing: pure string builders, no `$`.
 // Motion is SMIL only (it runs in VS Code's image mode, no script): value changes ease in,
 // and loops (particles, breathing) run only while the stage they show is working.
-import type { Board, Lifetime, Limit } from '../types'
+import type { Board, Lifetime, Limit, Turn } from '../types'
 import type { Cfg, Motion, Theme } from './core'
 import {
   budgetRunway,
@@ -27,6 +27,9 @@ import {
   toolBoard,
   until,
   weekCompare,
+  insights,
+  rereads,
+  streaks,
 } from './core'
 
 // ---------------------------------------------------------------- design tokens
@@ -170,6 +173,27 @@ const panel = (D: Draw, x: number, y: number, w: number, h: number, title: strin
   `<rect x="${r1(x + 0.5)}" y="${r1(y + 0.5)}" width="${r1(w - 1)}" height="${r1(h - 1)}" rx="10" fill="${D.p.panel}" stroke="${D.p.line}"/>` +
   label(D, x + 14, y + 20, title) +
   (right ? txt(D, x + w - 14, y + 20, right, { size: 9.5, anchor: 'end', color: D.p.sub }) : '')
+
+// A hover tooltip for one turn's bar; drawn where the SVG is interactive (the desktop app).
+const tip = (t: Turn) =>
+  `<title>${esc([`${dur(t.ms)} · ${t.tools} tools · ${t.usd !== null ? money(t.usd) : 'cost –'}`, t.model, t.reason !== 'answer' ? t.reason : '', t.fed?.length ? `fed by ${t.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(', ')}` : ''].filter(Boolean).join('\n'))}</title>`
+
+type Note = { t: string; right?: string; color?: string }
+
+// A titled panel of plain rows, for instruments that read as a list rather than a chart.
+const notes = (D: Draw, y: number, title: string, right: string, rows: Note[]) => {
+  const h = 38 + rows.length * 19
+  const cut = D.W >= 600 ? 92 : 58
+  const body =
+    panel(D, 0, y, D.W, h, title, right) +
+    rows
+      .map((r, i) => {
+        const ry = y + 42 + i * 19
+        return txt(D, 14, ry, short(r.t, r.right ? cut - 14 : cut), { size: 10, color: r.color ?? D.p.ink }) + (r.right ? txt(D, D.W - 14, ry, r.right, { size: 10, mono: true, anchor: 'end' }) : '')
+      })
+      .join('')
+  return { h, body }
+}
 
 const dot = (D: Draw, cx: number, cy: number, color: string, live: boolean, r = 3.5) =>
   (live && loops(D)
@@ -465,7 +489,7 @@ export const overview = (D: Draw, b: Board, cfg: Cfg) => {
   turns.forEach((t, i) => {
     const h = Math.max(3, (t.ms / maxMs) * 62)
     const col = t.reason !== 'answer' ? p.rust : t.usd === null ? p.steel : level(D, ((t.usd ?? 0) / maxUsd) * 0.85)
-    parts.push(`<rect x="${r1(14 + i * bw)}" y="${r1(base - h)}" width="${r1(bw - 3)}" height="${r1(h)}" rx="2" fill="${col}"/>`)
+    parts.push(`<rect x="${r1(14 + i * bw)}" y="${r1(base - h)}" width="${r1(bw - 3)}" height="${r1(h)}" rx="2" fill="${col}">${tip(t)}</rect>`)
   })
   if (b.running && turns.length < slots) {
     const h = Math.max(3, Math.min(62, ((b.now - b.turnStart) / maxMs) * 62))
@@ -473,6 +497,15 @@ export const overview = (D: Draw, b: Board, cfg: Cfg) => {
   }
   y += ph
 
+  const ins = insights(b, cfg)
+  const rows: Note[] = []
+  if (ins.costly) rows.push({ t: `priciest turn ${money(ins.costly.usd)} · ${dur(ins.costly.ms)} · fed by ${ins.costly.fed?.length ? ins.costly.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ') : 'no tool output'}`, color: p.amber })
+  for (const t of ins.tips) rows.push({ t: `› ${t}`, color: p.ink })
+  if (rows.length) {
+    const n = notes(D, y + gap, 'Why it costs what it does', '', rows)
+    parts.push(n.body)
+    y += gap + n.h
+  }
   return svg(D, y, parts.join(''))
 }
 
@@ -655,7 +688,11 @@ export const tools = (D: Draw, b: Board) => {
     }
     parts.push(txt(D, D.W - 14, y + 10, dur(r.p95), { size: 10, mono: true, anchor: 'end', color: r.p95 > 30000 ? p.amber : p.sub }))
   })
-  return svg(D, h, parts.join(''))
+  const st = streaks(b)
+  if (!st.length) return svg(D, h, parts.join(''))
+  const n = notes(D, h + 10, 'Failing in a row', '', st.slice(0, 4).map(s => ({ t: `${s.tool} · ${s.detail}`, right: `${s.n}×`, color: p.rust })))
+  parts.push(n.body)
+  return svg(D, h + 10 + n.h, parts.join(''))
 }
 
 export const files = (D: Draw, b: Board) => {
@@ -680,7 +717,11 @@ export const files = (D: Draw, b: Board) => {
     parts.push(txt(D, x + 12, y + 18, shortPath(r.path, cols === 3 ? 27 : 26), { size: 10, weight: 600, color: p.ink, mono: true }))
     parts.push(txt(D, x + 12, y + 34, `${r.edit}e · ${r.write}w · ${r.read}r${r.out ? ` · ${kfmt(r.out)} fed` : ''}`, { size: 9.5, mono: true }))
   })
-  return svg(D, h, parts.join(''))
+  const rr = rereads(b)
+  if (!rr.rows.length) return svg(D, h, parts.join(''))
+  const n = notes(D, h + 10, 'Read again', `~${kfmt(rr.waste)} tokens repeated`, rr.rows.slice(0, 5).map(f => ({ t: shortPath(f.path, D.W >= 600 ? 70 : 42), right: `${f.read}× · ${kfmt(f.waste)}`, color: p.ink })))
+  parts.push(n.body)
+  return svg(D, h + 10 + n.h, parts.join(''))
 }
 
 export const agents = (D: Draw, b: Board) => {
@@ -710,7 +751,7 @@ export const agents = (D: Draw, b: Board) => {
     parts.push(txt(D, 32, y + 6, short(a.type, wide ? 20 : 13), { size: 10.5, weight: 600, color: p.ink }))
     parts.push(txt(D, 32, y + 19, short(a.model || a.status, wide ? 22 : 14), { size: 9, mono: true, color: p.faint }))
     parts.push(`<rect x="${r1(sx)}" y="${y + 2}" width="${r1(bw)}" height="12" rx="3" fill="${col}" opacity="${a.status === 'run' ? 1 : 0.8}">${a.status === 'run' ? breathe(D, 'opacity', 0.6, 1, 1.6) : ''}</rect>`)
-    parts.push(txt(D, D.W - 14, y + 12, `${a.tools}t · ${dur((a.endedAt ?? b.now) - a.startedAt)}`, { size: 9.5, mono: true, anchor: 'end' }))
+    parts.push(txt(D, D.W - 14, y + 12, `${a.tools}t${a.tokens ? ` · ${kfmt(a.tokens)}` : ''} · ${dur((a.endedAt ?? b.now) - a.startedAt)}`, { size: 9.5, mono: true, anchor: 'end' }))
   })
   return svg(D, h, parts.join(''))
 }
@@ -755,7 +796,7 @@ export const spend = (D: Draw, b: Board, cfg: Cfg, life: Lifetime | null) => {
       const yTop = yOf(cum + usd)
       // Rust is kept for turns that ended badly; cost alone tops out at amber.
       const col = t.reason !== 'answer' ? p.rust : level(D, (usd / maxUsd) * 0.75)
-      parts.push(`<rect x="${r1(x)}" y="${r1(yTop)}" width="${r1(Math.max(1, bw - 3))}" height="${r1(Math.max(1.5, yOf(cum) - yTop))}" rx="1.5" fill="${col}"/>`)
+      parts.push(`<rect x="${r1(x)}" y="${r1(yTop)}" width="${r1(Math.max(1, bw - 3))}" height="${r1(Math.max(1.5, yOf(cum) - yTop))}" rx="1.5" fill="${col}">${tip(t)}</rect>`)
       if (i < turns.length - 1) parts.push(`<line x1="${r1(x + bw - 3)}" x2="${r1(x + bw)}" y1="${r1(yTop)}" y2="${r1(yTop)}" stroke="${p.faint}" stroke-width="0.8"/>`)
       cum += usd
     })
@@ -825,6 +866,18 @@ export const spend = (D: Draw, b: Board, cfg: Cfg, life: Lifetime | null) => {
     y += dh
   } else {
     y -= gap
+  }
+  const priciest = b.turns.filter(t => t.usd !== null && t.usd > 0).slice(-12).sort((x, z) => (z.usd ?? 0) - (x.usd ?? 0)).slice(0, 3)
+  if (priciest.length) {
+    const n = notes(D, y + gap, 'Priciest turns', 'what fed them', priciest.map(t => ({ t: `${money(t.usd)} · ${dur(t.ms)} · ${t.tools} tools · ${t.fed?.length ? t.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ') : '–'}`, color: p.ink })))
+    parts.push(n.body)
+    y += gap + n.h
+  }
+  const recent = (life?.recent ?? []).slice(-6).reverse()
+  if (recent.length) {
+    const n = notes(D, y + gap, 'Recent sessions', 'grade · length · turns · cost', recent.map(s => ({ t: `${s.at === b.startedAt ? '▸ ' : ''}${dayKey(s.at).slice(5)} · ${s.grade} · ${dur(s.ms)} · ${s.turns} turns${s.branch ? ` · ${s.branch}` : ''}`, right: money(s.usd), color: s.grade === 'A' ? p.sage : s.grade === 'B' ? p.ink : s.grade === 'C' ? p.amber : p.rust })))
+    parts.push(n.body)
+    y += gap + n.h
   }
   return svg(D, y, parts.join(''))
 }

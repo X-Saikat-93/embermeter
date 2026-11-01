@@ -458,7 +458,9 @@ export const register: Register = (on, options) => {
         ))}
       </Box>
     )
-    const picture = (source: string, alt: string) => <Svg source={source} alt={alt} />
+    // The desktop draws an interactive SVG in a sandboxed frame, so the turn bars' tooltips work there.
+    const hover = (e as any).surface === 'desktop'
+    const picture = (source: string, alt: string) => <Svg source={source} alt={alt} {...(hover ? { isInteractive: true } : {})} />
 
     // Each tab's picture, drawn only for the tab on show; the log tab is text alone.
     const pages: Partial<Record<Tab, () => any>> = {
