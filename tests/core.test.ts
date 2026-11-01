@@ -41,6 +41,8 @@ import {
   startTurn,
   toolBoard,
   withCtx,
+  commandHeads,
+  isHeavy,
 } from '../hooks/core'
 import type { Call, Lifetime } from '../types'
 
@@ -369,4 +371,21 @@ test('the last seven days are compared with the seven before', async () => {
   l = addDay(l, '2026-11-10', { usd: 12 })
   expect(weekCompare(l, noon)).toEqual({ week: 12, prior: 10, change: 0.2 })
   expect(weekCompare(null, noon).change).toBe(null)
+})
+
+// ---------------------------------------------------------------- guards and instruments
+
+test('heavy jobs are judged by each command, never by its arguments', async () => {
+  expect(commandHeads('FOO=1 rtk nice -n 10 npm test -- --watch && git status | head')).toEqual(['npm test --', 'git status', 'head'])
+  for (const c of ['rtk npm test', 'nice -n 10 cargo build', 'cd x && npx vitest run', 'sudo docker build .', 'a; pnpm install'])
+    expect(isHeavy(c, cfg)).toBe(true)
+  for (const c of ['grep -n "test" file.ts', 'git commit -m "fix the build"', 'rtk grep build src/', 'echo test', 'cat tests/core.test.ts'])
+    expect(isHeavy(c, cfg)).toBe(false)
+})
+
+test('wrappers and shells cannot hide a heavy job', async () => {
+  for (const c of ['bash -c "npm test"', "sh -c 'cargo build --release'", 'timeout 600 npm test', 'timeout -k 5 10m cargo build', 'sudo -u ci docker build .', 'ionice -c 3 nice -n 19 pnpm install', '(cd app && npm run build)', 'nohup vitest run &', 'xargs -n 1 tsc'])
+    expect(isHeavy(c, cfg)).toBe(true)
+  expect(commandHeads('sudo -u bob ls -la')).toEqual(['ls -la'])
+  expect(isHeavy('bash -c "echo test"', cfg)).toBe(false)
 })

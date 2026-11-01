@@ -85,7 +85,7 @@
     },
     "heavyPattern": {
       "title": "Heavy command pattern",
-      "description": "Regular expression for the Bash commands the heat guard treats as heavy; empty uses the built-in list",
+      "description": "Regular expression for the Bash commands the heat guard treats as heavy, tested against the first words of each command in a line (after wrappers such as rtk, nice or npx), never its arguments; empty uses the built-in list",
       "type": "string",
       "default": ""
     },

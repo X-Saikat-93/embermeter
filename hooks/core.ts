@@ -609,6 +609,65 @@ export const newAlerts = (b: Board, cfg: Cfg, today: number | null = null): { ke
   return out
 }
 
+// Wrappers that run the real command after them; skipped so `rtk npm test`, `nice -n 10 cargo build`,
+// `timeout 600 npm test` or `bash -c "npm test"` are judged by the command they run.
+const WRAPPERS = /^(?:rtk|nice|ionice|time|timeout|sudo|doas|env|npx|pnpx|bunx|command|exec|xargs|nohup|bash|sh|zsh|dash)$/
+const SHELLS = /^(?:bash|sh|zsh|dash)$/
+// Wrapper flags that take a value: `nice -n 10`, `ionice -c 3`, `sudo -u bob`, `timeout -k 5 60`, `xargs -n 1`.
+const VALUE_FLAG = /^-(?:n|c|u|g|k|s|P|I|L)$/
+// A duration or count a wrapper takes bare: `timeout 600`, `timeout 10m`.
+const BARE_VALUE = /^\d+(?:\.\d+)?[smhd]?$/
+
+// The words after the wrappers that start at `i`: their flags, flag values and bare values skipped. A shell's
+// `-c` is followed by the command itself.
+const skipWrapper = (words: string[], i: number): number => {
+  const shell = SHELLS.test(words[i] ?? '')
+  let j = i + 1
+  while (j < words.length) {
+    const f = words[j] ?? ''
+    if (shell && f === '-c') return j + 1
+    if (!shell && VALUE_FLAG.test(f)) j += 2
+    else if (f.startsWith('-') || BARE_VALUE.test(f)) j++
+    else break
+  }
+  return j
+}
+
+// The command words of each part of a shell line (split at &&, ||, ;, | and newlines): leading VAR=value
+// assignments, wrappers and their flags dropped, then the first three words, without the quotes or subshell
+// parentheses around them. Arguments past those, such as a grep pattern or a commit message, never make a
+// command heavy.
+export const commandHeads = (command: string): string[] =>
+  command
+    .split(/&&|\|\||[;|\n]/)
+    .map(part => {
+      const words = part.trim().replace(/^[("'`$]+/, '').split(/\s+/).filter(Boolean)
+      let i = 0
+      while (i < words.length) {
+        const w = (words[i] ?? '').replace(/^[("'`]+/, '')
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) i++
+        else if (WRAPPERS.test(w)) {
+          words[i] = w
+          i = skipWrapper(words, i)
+        } else break
+      }
+      return words
+        .slice(i, i + 3)
+        .join(' ')
+        .replace(/^[("'`]+|[)"'`]+$/g, '')
+    })
+    .filter(Boolean)
+
+// Tools whose subcommand says what runs (`npm run build`, `cargo test`, `docker compose up`); for anything else only
+// the command word counts, so `echo test` or `grep build src/` stay light.
+const RUNNERS = /^(?:npm|pnpm|yarn|bun|deno|node|cargo|go|make|docker|podman|prisma|gradle|gradlew|mvn|dotnet|uv|poetry|pip|python3?|claude|turbo|nx)$/
+
+export const isHeavy = (command: string, cfg: Cfg) =>
+  commandHeads(command).some(h => {
+    const word = h.split(' ')[0] ?? ''
+    return cfg.heavy.test(RUNNERS.test(word) ? h : word)
+  })
+
 export const refuse = (v: Vitals | null, cfg: Cfg): string | null => {
   if (!cfg.guard || v === null) return null
   if (v.tempC !== null && v.tempC > cfg.maxTempC) return `laptop at ${v.tempC.toFixed(0)}C (limit ${cfg.maxTempC}C)`

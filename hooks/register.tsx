@@ -13,6 +13,7 @@ import {
   endAgent,
   endTurn,
   estTokens,
+  isHeavy,
   finishCall,
   gitDirOf,
   health,
@@ -386,7 +387,7 @@ export const register: Register = (on, options) => {
 
   // Heat guard: heavy Bash jobs wait while the laptop is hot or low on battery. A guard fault lets the call through.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!cfg.guard || !cfg.heavy.test(e.command)) return next(e)
+    if (!cfg.guard || !isHeavy(e.command, cfg)) return next(e)
     const why = refuse((await get($)).vitals, cfg)
     if (!why) return next(e)
     await set($, b => ({ ...b, guardBlocks: b.guardBlocks + 1 }))
