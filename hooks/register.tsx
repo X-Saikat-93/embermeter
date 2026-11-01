@@ -14,6 +14,8 @@ import {
   endTurn,
   estTokens,
   isHeavy,
+  sessionStat,
+  withSession,
   finishCall,
   gitDirOf,
   health,
@@ -315,7 +317,8 @@ export const register: Register = (on, options) => {
       const tok = t?.tokens ? ` · ${kfmt(t.tokens.output)} out` : ''
       await note($, 'main', `${e.reason} · ${dur(t?.ms)} · ${t?.tools ?? 0} tools${tok}${t?.usd != null ? ` · ${money(t.usd)}` : ''}`, e.reason === 'answer' ? 'done' : 'error')
       const add = { turns: 1, calls: t?.tools ?? 0, usd: t?.usd ?? 0 }
-      await saveLife($, l => addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add))
+      const after = await get($)
+      await saveLife($, l => withSession(addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add), sessionStat(after, cfg)))
       await refreshComp($, true)
       await raise($)
     } else {

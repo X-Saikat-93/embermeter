@@ -129,8 +129,11 @@ export type Tab = 'overview' | 'context' | 'spend' | 'tools' | 'files' | 'agents
 
 export type DayStat = { sessions: number; usd: number; turns: number; calls: number }
 
-// `days`: totals per local date (YYYY-MM-DD), the most recent 60 kept.
-export type Lifetime = { sessions: number; usd: number; turns: number; calls: number; days?: Record<string, DayStat> }
+// One past session, keyed by when it started.
+export type SessionStat = { at: number; ms: number; usd: number; turns: number; calls: number; grade: string; branch: string }
+
+// `days`: totals per local date (YYYY-MM-DD), the most recent 60 kept. `recent`: the last 20 sessions, newest last.
+export type Lifetime = { sessions: number; usd: number; turns: number; calls: number; days?: Record<string, DayStat>; recent?: SessionStat[] }
 
 declare module 'claude-code' {
   interface PluginState {

@@ -1,5 +1,5 @@
 // Pure logic: no `$`, no I/O. Everything here is unit-tested in tests/core.test.ts.
-import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, DayStat, FileStat, Lifetime, Limit, LimitTrack, LogKind, ModelStat, Tokens, ToolStat, Turn, Vitals } from '../types'
+import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, DayStat, FileStat, Lifetime, Limit, LimitTrack, LogKind, ModelStat, SessionStat, Tokens, ToolStat, Turn, Vitals } from '../types'
 
 export type Theme = 'night' | 'day' | 'washi'
 export type Motion = 'smooth' | 'reduced' | 'off'
@@ -711,6 +711,68 @@ export const steadyTemp = (b: Board): number | null => {
 }
 
 export const steadyVitals = (b: Board): Vitals | null => (b.vitals ? { ...b.vitals, tempC: steadyTemp(b) } : null)
+
+// ---------------------------------------------------------------- instruments
+
+// Files read more than once: every read after the first fed the same text again. `waste`: tokens of those repeats.
+export const rereads = (b: Board): { rows: (FileRow & { waste: number })[]; waste: number } => {
+  const rows = fileBoard(b)
+    .filter(f => f.read > 1)
+    .map(f => ({ ...f, waste: f.out > 0 ? Math.round((f.out * (f.read - 1)) / f.read) : 0 }))
+    .sort((x, y) => y.waste - x.waste || y.read - x.read)
+  return { rows, waste: rows.reduce((s, r) => s + r.waste, 0) }
+}
+
+// Tools whose latest calls failed back to back (two or more), longest streak first.
+export const streaks = (b: Board): { tool: string; n: number; detail: string }[] => {
+  const by: Record<string, Call[]> = {}
+  for (const c of b.calls) if (!c.agent && c.status !== 'run') (by[c.tool] ??= []).push(c)
+  const out: { tool: string; n: number; detail: string }[] = []
+  for (const [tool, calls] of Object.entries(by)) {
+    let n = 0
+    for (let i = calls.length - 1; i >= 0 && calls[i]?.status === 'fail'; i--) n++
+    if (n >= 2) out.push({ tool, n, detail: calls[calls.length - 1]?.detail ?? '' })
+  }
+  return out.sort((x, y) => y.n - x.n)
+}
+
+// Why the session costs what it does: the priciest recent turn and what fed it, then plain tips from the numbers.
+export const insights = (b: Board, cfg: Cfg): { costly: Turn | null; tips: string[] } => {
+  const costly = b.turns.filter(t => t.usd !== null && t.usd > 0).slice(-12).sort((x, y) => (y.usd ?? 0) - (x.usd ?? 0))[0] ?? null
+  const tips: string[] = []
+  const rr = rereads(b)
+  if (rr.waste >= 5000) tips.push(`${rr.rows.length} file${rr.rows.length === 1 ? '' : 's'} read again: ~${kfmt(rr.waste)} tokens repeated. Read ranges, or keep notes`)
+  const w = ctxWeight(b)[0]
+  if (w && w.share >= 0.5 && w.out >= 5000) tips.push(`${w.tool} results are ${Math.round(w.share * 100)}% of what tools fed back: trim output (head, --quiet, filters)`)
+  const hit = cacheHit(b.tokens)
+  if (hit !== null && hit < 0.4 && b.turns.length >= 4) tips.push(`cache hit ${Math.round(hit * 100)}%: long gaps between turns let the cache expire`)
+  const f = forecast(b)
+  if (f.turnsLeft !== null && f.turnsLeft <= 5) tips.push(`~${f.turnsLeft} turns of context left: /compact at a natural break`)
+  else if ((b.ctx?.pct ?? 0) >= 70) tips.push(`context ${Math.round(b.ctx?.pct ?? 0)}%: every turn re-reads it; /compact or /clear when switching task`)
+  for (const s of streaks(b).slice(0, 1)) tips.push(`${s.tool} failed ${s.n} times in a row: check ${short(s.detail, 40) || 'its input'}`)
+  if (cfg.budgetUsd > 0) {
+    const left = budgetRunway(b, cfg)
+    if (left !== null && left <= 5) tips.push(`~${left} turns of budget left at ${money(costRate(b).perTurn)} a turn`)
+  }
+  return { costly, tips }
+}
+
+// This session's line in the history, replaced in place while it runs; the last 20 kept.
+export const withSession = (l: Lifetime, s: SessionStat): Lifetime => {
+  const rest = (l.recent ?? []).filter(x => x.at !== s.at)
+  return { ...l, recent: [...rest, s].sort((x, y) => x.at - y.at).slice(-20) }
+}
+
+export const sessionStat = (b: Board, cfg: Cfg): SessionStat => ({
+  at: b.startedAt,
+  ms: Math.max(0, b.now - b.startedAt),
+  usd: b.ctx?.usd ?? 0,
+  turns: b.turnCount,
+  calls: Object.values(b.stats).reduce((s, x) => s + x.n, 0),
+  grade: health(b, cfg).grade,
+  branch: b.branch,
+})
+
 // ---------------------------------------------------------------- formatting
 
 export const short = (s: unknown, n: number) => {
@@ -784,6 +846,9 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
     `- Gate: ${b.gate.allow} allowed · ${b.gate.ask} asked · ${b.gate.deny} denied · ${b.guardBlocks} heat-guard blocks`,
     cfg.prefix && compliance(b) !== null ? `- \`${cfg.prefix}\` prefix compliance: ${compliance(b)}% of ${b.bash.total} commands` : '',
     `- Subagents: ${b.agents.length} (${b.agents.filter(a => a.status === 'done').length} done)${b.agents.some(a => a.tokens) ? ` · ${kfmt(b.agents.reduce((s, a) => s + (a.tokens ?? 0), 0))} tokens` : ''}`,
+    rereads(b).rows.length ? `- Read again: ${rereads(b).rows.length} files · ~${kfmt(rereads(b).waste)} tokens repeated` : '',
+    streaks(b).length ? `- Failing in a row: ${streaks(b).map(x => `${x.tool} ×${x.n}`).join(' · ')}` : '',
+    ...insights(b, cfg).tips.map(t => `- Tip: ${t}`),
     life ? `- All time: ${life.sessions} sessions · ${money(life.usd)} · ${life.turns} turns · ${life.calls} tool calls · last 30 days ${money(monthUsd)}${week && week.change !== null ? ` · last 7 days ${money(week.week)} (${week.change >= 0 ? '+' : ''}${Math.round(week.change * 100)}% on the week before)` : ''}` : '',
     ``,
     rows.length ? `| Tool | Calls | OK | Avg | p95 |\n|---|---:|---:|---:|---:|\n${rows.map(t => `| ${t.tool} | ${t.n} | ${t.okPct}% | ${dur(t.avg)} | ${dur(t.p95)} |`).join('\n')}` : '',

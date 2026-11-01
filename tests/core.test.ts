@@ -42,9 +42,14 @@ import {
   toolBoard,
   withCtx,
   commandHeads,
+  insights,
   isHeavy,
+  rereads,
+  sessionStat,
   steadyTemp,
+  streaks,
   turnFeed,
+  withSession,
   withVitals,
 } from '../hooks/core'
 import type { Call, Lifetime } from '../types'
@@ -420,9 +425,48 @@ test('battery and memory limits join the heat guard only when set', async () => 
   expect(refuse(v, parseConfig({ guard: false, pauseOnBattery: true }))).toBe(null)
 })
 
+test('re-reads count the repeated tokens; failure streaks need two in a row', async () => {
+  let b = emptyBoard(0)
+  b = runCall(b, '1', 'Read', '/a.ts', 'ok', 1, 3000, '/a.ts')
+  b = runCall(b, '2', 'Read', '/a.ts', 'ok', 2, 3000, '/a.ts')
+  b = runCall(b, '3', 'Read', '/b.ts', 'ok', 3, 500, '/b.ts')
+  expect(rereads(b)).toMatchObject({ waste: 3000, rows: [{ path: '/a.ts', read: 2 }] })
+  b = runCall(b, '4', 'Bash', 'make', 'fail', 4)
+  expect(streaks(b)).toEqual([])
+  b = runCall(b, '5', 'Bash', 'make', 'fail', 5)
+  expect(streaks(b)).toEqual([{ tool: 'Bash', n: 2, detail: 'make' }])
+  b = runCall(b, '6', 'Bash', 'make', 'ok', 6)
+  expect(streaks(b)).toEqual([])
+})
+
+test('a turn records what fed it, and insights name the priciest turn', async () => {
+  let b = startTurn(withCtx(emptyBoard(0), ctx(10, 0)), 100, null)
+  b = runCall(b, '1', 'Read', '/big.json', 'ok', 200, 32000, '/big.json')
+  b = runCall(b, '2', 'Bash', 'ls', 'ok', 300, 50)
+  expect(turnFeed(b, 100)).toEqual([{ name: '/big.json', out: 32000 }, { name: 'Bash', out: 50 }])
+  b = endTurn(b, 400, 300, 'answer', ctx(30, 0.4))
+  expect(b.turns[0]?.fed?.[0]).toEqual({ name: '/big.json', out: 32000 })
+  const ins = insights(b, cfg)
+  expect(Math.round((ins.costly?.usd ?? 0) * 100)).toBe(40)
+  expect(ins.tips.some(t => t.startsWith('Read results are'))).toBe(true)
+})
+
 test('subagents add up their tokens', async () => {
   let b = spawnAgent(emptyBoard(0), { id: 'a', type: 'Explore', desc: '', model: '', status: 'run', startedAt: 0, endedAt: null, tools: 0 })
   b = endAgent(b, 'a', 'answer', 10, { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 1000 })
   expect(b.agents[0]).toMatchObject({ status: 'done', tokens: 1120 })
   expect(endAgent(b, 'a', 'answer', 20).agents[0]?.tokens).toBe(1120)
+})
+
+test('session history keeps one line per session, the last 20', async () => {
+  const b = withCtx({ ...emptyBoard(500), now: 6500, turnCount: 3, branch: 'main' }, ctx(10, 0.25))
+  const s = sessionStat(b, cfg)
+  expect(s).toMatchObject({ at: 500, ms: 6000, usd: 0.25, turns: 3, grade: 'A', branch: 'main' })
+  let l: Lifetime = { sessions: 0, usd: 0, turns: 0, calls: 0 }
+  l = withSession(l, s)
+  l = withSession(l, { ...s, turns: 4 })
+  expect(l.recent).toEqual([{ ...s, turns: 4 }])
+  for (let i = 0; i < 30; i++) l = withSession(l, { ...s, at: 1000 + i })
+  expect(l.recent?.length).toBe(20)
+  expect(l.recent?.[19]?.at).toBe(1029)
 })
