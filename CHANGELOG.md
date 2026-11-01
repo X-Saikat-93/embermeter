@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-01
+
 ### Added
 - **Terminal graphics.** The CLI pane and strip are drawn in coloured cells: heat-gradient meters with eighth-cell precision, sparklines coloured by height, a stacked context bar, swimlanes and a file heatmap. `terminalDrawing: text` keeps plain lines.
 - **Terminal motion.** While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters and agent lanes, about 7 frames a second. Only the blocks that move are repainted, and nothing is sent while idle or with `motion` other than `smooth`.
@@ -88,7 +90,8 @@ First public release.
 ### Security
 - No network, no file writes, no processes. Every hook fails open. All SVG text is escaped.
 
-[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.0.0...v1.1.0
