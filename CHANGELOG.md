@@ -5,31 +5,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-02
+
+Eight new instruments for the questions a long session raises. Is the prompt cache still warm? Which MCP servers cost tokens without being called? What would the same work cost on a cheaper model? What did the last compaction drop? Did the tests pass? What is still running in the background? What is not yet committed? The terminal pane is also redrawn, with the ember as its mark. A review of the new code found ten bugs, and all of them are fixed in this release.
+
+### Highlights
+- **Know before the cache goes cold.** A live countdown from each reply shows when the prompt cache expires and the next prompt pays to write it again. It learns when your account keeps the cache for an hour.
+- **See what you pay for and never use.** MCP servers whose tools ride along in every request without a single call are listed, with their token cost and how many sessions in a row they have sat idle.
+- **A pane that looks like an instrument.** Thin gradient meters with red-line limits, two-row charts, pills and dotted leaders, led by the ember mark, which glows while work runs. Nothing moves when idle.
+- **Compactions you can trust.** Only real compactions of the main conversation are counted. They are still seen when a managed plugin keeps the compaction event from Embermeter.
+
 ### Added
-- **Cache warmth:** a countdown from each reply to when the prompt cache goes cold, in the strip, header, status line and report. It learns an hour-long cache from a warm reply after a long gap. `cacheAlert` toasts a minute before.
-- **Loaded, never called:** MCP servers whose tools sit in every request without a call, with their tokens and their run of unused sessions, plus a tip.
-- **Same tokens, cheaper model:** the main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, on the Spend tab and in the report.
-- **Last compaction:** tokens before and after, and what had been feeding the window, on the Context tab and in the report.
-- **Test runs:** passed and failed counts parsed from test commands, with the failing trend, on the Tools tab.
+- **Cache warmth:** a countdown from each reply to when the prompt cache goes cold, in the strip, the header, the status line and the report. It switches to an hour once a reply after more than five idle minutes finds the cache still warm. `cacheAlert` (off by default) toasts a minute before, when the window holds 20k tokens or more.
+- **Loaded, never called:** MCP servers whose tools sit in every request without a call, with their token cost and their run of unused sessions, on the Context tab, plus a tip to disconnect them.
+- **Same tokens, cheaper model:** the main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices (Haiku's 5x rate over 100k tokens included), on the Spend tab and in the report. Turns a subagent was running during are left out, since their cost includes tokens the board never sees.
+- **Last compaction:** tokens before and after, the trigger, and the files and tools that had been feeding the window, on the Context tab and in the report.
+- **Test runs:** passed and failed counts from Jest, Vitest, pytest, Mocha, cargo, go, `node --test`, RSpec and PHPUnit, with PASS and FAIL pills and the failing trend, on the Tools tab.
 - **By branch:** spend, sessions and turns per git branch across sessions, on the Spend tab and in the report.
-- **Background jobs:** background Bash commands until they end or are stopped, on the System tab, with an alert when one outlives its turn by two minutes.
-- **Since the last commit:** files changed since the branch last moved, read from git's files with `fs.stat`, in the header, with tips for long-uncommitted work and files changed six or more times.
+- **Background jobs:** Claude's background Bash commands, until their end notice arrives or they are stopped, on the System tab and in the status line, with an alert when one is still running two minutes after its turn.
+- **Since the last commit:** files Claude changed in the project since the branch last moved, read from git's own files with `fs.stat` (no git process), in the header, with a tip after half an hour with five or more, and another for files changed six or more times.
 
 ### Changed
-- **The terminal pane is redrawn.** Section labels in capitals on a rule that fades from the accent; thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, temperature limit, battery floor and memory limit; two-row bar charts for trends, cost per turn, the 30 days and the thermal trend; pills for the grade, test results and failing streaks; dotted leaders for file and server lists; dotted swimlane tracks. While work runs, the rules of the live sections shimmer along with the meters, and nothing moves when idle.
-- **The ember is the mark.** The header leads with the ember (`◉` in the terminal, the sun in SVG), which glows while work runs; the grade sits beside the name as a labelled badge instead of where a logo goes.
+- **The terminal pane is redrawn.**
+  - Section labels in capitals on a rule that fades from the accent.
+  - Thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, the temperature limit, the battery floor and the memory limit.
+  - Two-row bar charts for trends, cost per turn, the 30 days and the thermal trend.
+  - Pills for the grade, test results and failing streaks, and dotted leaders for file and server lists.
+  - While work runs, the rules of the live sections shimmer along with the meters. Nothing moves when idle.
+- **The ember is the mark.** The header leads with the ember (`◉` in the terminal, the session card's sun in SVG), which glows while work runs. The grade sits beside the name as a labelled badge (`grade [B] 79/100`), where it used to read as a "B" logo. The strip's grade is a filled badge.
 
 ### Fixed
-- Compactions are counted once, and only the main conversation's that stood: a `precompute`, a skipped compaction or a subagent's no longer bumps the count or re-arms the context alerts.
-- Compactions still count, and the context alerts still re-arm, when another plugin (a managed one seated outermost) sends `session.compact` past Embermeter: a window that falls to half or less from 20k tokens or more is read as one, shown as `detected`.
-- Background jobs: a subagent's background commands, and ones that end with their caller's answer, are no longer listed as running forever, and a prompt carrying several task notifications closes each job it names. The System tab no longer animates while idle because a dev server runs.
-- Test runs: a run that exits non-zero shows as failed (a suite that did not load, a pytest error, a coverage floor). `node --test`, `./gradlew test`, `vendor/bin/phpunit`, `bundle exec rspec`, `python -m unittest`, `just test` and `cargo nextest` are recognised, RSpec and PHPUnit totals are read, and the shell's `test -f` no longer counts.
-- Since the last commit: only edits that ran count (not denied or failed ones), only files inside the project, and a commit made while Claude is idle clears the count within 15 seconds.
-- The cache countdown no longer switches to an hour for good after a turn that compacted mid-way.
-- Same tokens, cheaper model: turns a background subagent was still spending during are left out, so the saving is not overstated.
-- `/embermeter reset` no longer counts as a new session in the branch, MCP and history stats, and `/clear` starts the board over instead of carrying the old conversation's jobs, tests and cache countdown.
-- The report reads "Prompt cache: warm, 4m00s left" or "cold" instead of "cache cache cold left".
-- Alert keys for an earlier turn's cache countdown or an ended job are dropped instead of piling up.
+- **Compactions:** counted once, and only the main conversation's compactions that stood. A `precompute`, a skipped compaction or a subagent's compaction no longer bumps the count or re-arms the context alerts. When another plugin seated outermost (such as a managed security plugin) sends `session.compact` past Embermeter, a context window that falls to half or less from 20k tokens or more is read as a compaction, shown as `detected`.
+- **Background jobs:**
+  - A subagent's background commands, and ones that end with their caller's answer, are no longer listed as running forever.
+  - A prompt carrying several task notifications closes every job it names.
+  - The System tab no longer animates while idle because a dev server is running.
+- **Test runs:**
+  - A run that exits non-zero shows as failed, so a suite that did not load, a pytest error or a coverage floor no longer gets a green PASS.
+  - `./gradlew test`, `vendor/bin/phpunit`, `./node_modules/.bin/jest`, `bundle exec rspec`, `python -m unittest`, `just test` and `cargo nextest` are recognised.
+  - The shell's `test -f` no longer counts as a test run.
+- **Since the last commit:** only edits that ran count, not denied or failed ones, and only files inside the project. A commit made from another terminal while Claude is idle clears the count within 15 seconds.
+- **Cache warmth:** a turn that compacted part-way no longer switches the cache lifetime to an hour for good, which had delayed the cache alert by up to 55 minutes.
+- **Same tokens, cheaper model:** turns a background subagent was still spending during are left out, so the saving is no longer overstated.
+- **Sessions:** `/embermeter reset` no longer counts as a new session in the branch, MCP and history stats. `/clear` starts the board over instead of carrying the old conversation's jobs, tests and cache countdown.
+- **Report:** reads "Prompt cache: warm, 4m00s left" or "cold" instead of "cache cache cold left".
+- **Alerts:** keys for an earlier turn's cache countdown or an ended job are dropped instead of piling up for the whole session.
+
+### Security
+- SVG attribute values escape double quotes, so a `"` in text placed in an attribute such as `aria-label` can no longer end it early. Flagged by code scanning.
+- The release workflow reads the repository by default. Only the job that publishes the release can write.
+
+### Upgrading
+- Run `claude plugin update embermeter@embermeter`, then `/reload-plugins` in a running session.
+- Nothing to configure. Boards and lifetime totals stored by 1.3.0 gain the new fields the first time they are read. `cacheAlert` is the only new setting, and it is off by default.
+- The cheaper-model comparison uses list prices published in October 2026, kept in `hooks/core.ts`. They are an estimate, not a bill.
 
 ## [1.3.0] - 2026-11-01
 
@@ -116,7 +145,8 @@ First public release.
 ### Security
 - No network, no file writes, no processes. Every hook fails open. All SVG text is escaped.
 
-[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/X-Saikat-93/embermeter/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/X-Saikat-93/embermeter/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/X-Saikat-93/embermeter/compare/v1.1.0...v1.2.0
