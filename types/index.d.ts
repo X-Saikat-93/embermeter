@@ -141,6 +141,8 @@ export type Board = {
   jobs: Job[]
   // When the current branch last moved (a commit, reset or pull), from git's own files; null when unknown.
   commitAt: number | null
+  // The project root git works in, so files outside it (a scratch file in /tmp) are not counted as uncommitted.
+  root?: string
 }
 
 export type Tab = 'overview' | 'context' | 'spend' | 'tools' | 'files' | 'agents' | 'system' | 'log'

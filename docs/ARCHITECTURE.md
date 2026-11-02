@@ -82,14 +82,14 @@ Lifetime totals (`sessions`, `turns`, `calls`, `usd`), the same four totals per 
 | **Long turn** | Fires once per turn when it runs past `longTurnMin`, naming the last tool call. |
 | **Heaviest files** | Each call keeps the file it worked on, so the size of its result is credited to that file. |
 | **Week over week** | Spend over the last seven calendar days against the seven before. |
-| **Branch** | Read from `.git/HEAD` under the project root at most every 15 seconds. A worktree's `.git` file is followed to the real git directory. |
+| **Branch** | Read from `.git/HEAD` under the project root at most every 15 seconds, idle or not. A worktree's `.git` file is followed to the real git directory. |
 | **Cache warmth** | The last reply's time plus the cache lifetime, against now. The lifetime is 5 minutes until a reply after 5–60 idle minutes rewrites under half the window, which shows an hour-long cache. |
 | **Loaded, never called** | Loaded MCP tools grouped by server (`mcp__<server>__` prefix) against the calls made to that prefix. The lifetime store keeps each server's run of sessions without a call. |
 | **Same tokens, cheaper model** | Each main-thread turn's tokens times list prices kept in `core.ts`; Haiku's 5x rate above 100k tokens is applied by the window size at the turn's end. Turns that overlapped a subagent's start are left out. |
 | **Last compaction** | On a main-conversation compaction (not `precompute`, not skipped): `tokensBefore`, `tokensAfter`, and what fed the window since the previous one. Where the `session.compact` hook never runs (a managed plugin seated outermost can send it past), a context sample that falls to half or less from 20k tokens or more counts as one, recorded as `detected`. |
 | **Test runs** | Bash commands whose command word (a path's last part) names a test runner, or a runner's subcommand does (`npm test`, `node --test`, `./gradlew test`, `bundle exec rspec`); the shell's own `test` does not count. Counts come from RSpec's or PHPUnit's totals, else the output's "Tests" total line, else summed across it; a pytest error counts as a failure. A run that exits non-zero records at least one failure. |
 | **Background jobs** | Opened by a main-thread Bash result's `backgroundTaskId`, unless the result says no notification can follow (`backgroundEndsWithFinalResponse`) or that its subagent is woken instead (`backgroundWakesOwner`). Closed by `TaskStop`, or by each `<task-notification>` in a prompt that names the task. The System tab's lines move only while a turn runs. |
-| **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files with an Edit or Write after it. |
+| **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files under the project root with an Edit or Write that ran (not denied, not failed) after it. |
 | **Branch spend** | Each turn's cost added to the session's branch in the lifetime store, the 40 most recent kept. |
 | **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
 

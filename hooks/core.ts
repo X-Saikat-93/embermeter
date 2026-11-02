@@ -205,8 +205,7 @@ export const startCall = (b: Board, call: Call, input: { file?: string; command?
   const kind = FILE_KIND[call.tool]
   if (kind && input.file) {
     const f = next.files[input.file] ?? { read: 0, edit: 0, write: 0, last: 0 }
-    const changed = kind === 'read' ? {} : { lastEdit: call.at }
-    next = { ...next, files: { ...next.files, [input.file]: { ...f, [kind]: f[kind] + 1, last: call.at, ...changed } } }
+    next = { ...next, files: { ...next.files, [input.file]: { ...f, [kind]: f[kind] + 1, last: call.at } } }
   }
   if (call.tool === 'Bash' && input.command !== undefined) {
     const isPrefixed = prefix !== '' && input.command.trim().startsWith(`${prefix} `)
@@ -236,11 +235,16 @@ export const finishCall = (b: Board, id: string, status: CallStatus, ms: number,
     out: (s.out ?? 0) + out,
   }
   const f = call.file ? b.files[call.file] : undefined
+  // A change counts toward "since the last commit" once it ran: a denied or failed edit changed nothing.
+  const changed = status === 'ok' && (FILE_KIND[call.tool] === 'edit' || FILE_KIND[call.tool] === 'write')
   return {
     ...b,
     calls: b.calls.map(c => (c.id === id ? { ...c, status, ms, out } : c)),
     stats: { ...b.stats, [call.tool]: stat },
-    files: f && call.file && out > 0 ? { ...b.files, [call.file]: { ...f, out: (f.out ?? 0) + out } } : b.files,
+    files:
+      f && call.file && (out > 0 || changed)
+        ? { ...b.files, [call.file]: { ...f, ...(out > 0 ? { out: (f.out ?? 0) + out } : {}), ...(changed ? { lastEdit: call.at } : {}) } }
+        : b.files,
   }
 }
 
@@ -929,12 +933,13 @@ export const whatIf = (b: Board): { model: string; usd: number; actual: number; 
 // Files changed again and again this session, most first: a sign of trial and error.
 export const churn = (b: Board, min = 6): FileRow[] => fileBoard(b).filter(f => f.edit + f.write >= min)
 
-// Files changed this session since the branch last moved (a commit, reset or pull), newest first.
+// Files in the project changed this session since the branch last moved (a commit, reset or pull), newest first.
 export const sinceCommit = (b: Board): { files: string[]; ago: number } | null => {
   const at = b.commitAt
   if (at === null) return null
+  const root = b.root ? `${b.root.replace(/\/+$/, '')}/` : ''
   const files = Object.entries(b.files)
-    .filter(([, f]) => (f.lastEdit ?? 0) > at)
+    .filter(([path, f]) => (f.lastEdit ?? 0) > at && path.startsWith(root))
     .sort((x, y) => (y[1].lastEdit ?? 0) - (x[1].lastEdit ?? 0))
     .map(([path]) => path)
   return { files, ago: Math.max(0, b.now - at) }

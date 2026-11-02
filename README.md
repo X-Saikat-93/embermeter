@@ -155,7 +155,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node, RSpec, PHPUnit), with the failing trend. A run that exits non-zero counts as failed, even when every test it reached passed. |
 | 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
 | 28 | **Background jobs** | Commands Claude ran in the background in the main conversation, until they end or are stopped, with an alert when one is still running two minutes after its turn. A subagent's own background commands report to that subagent and are not listed. |
-| 29 | **Since the last commit** | Files changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Files changed six or more times get a tip too. |
+| 29 | **Since the last commit** | Files in the project that Claude changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Only edits that ran count, not denied or failed ones. A commit from your own terminal clears it within 15 seconds. Files changed six or more times get a tip too. |
 
 </details>
 

@@ -184,13 +184,21 @@ test('branch spend adds up across sessions, each counted once', async () => {
 
 test('changes since the last commit and files changed again and again', async () => {
   let b = emptyBoard(0)
-  for (let i = 0; i < 6; i++) b = startCall(b, call(`e${i}`, 'Edit', 1000 + i), { file: '/a.ts' }, '')
-  b = startCall(b, call('w', 'Write', 5000), { file: '/b.ts' }, '')
-  b = startCall(b, call('r', 'Read', 6000), { file: '/c.ts' }, '')
+  const ran = (x: Board, id: string, tool: string, at: number, file: string, status: 'ok' | 'fail' | 'denied' = 'ok') => finishCall(startCall(x, call(id, tool, at), { file }, ''), id, status, 10)
+  for (let i = 0; i < 6; i++) b = ran(b, `e${i}`, 'Edit', 1000 + i, '/a.ts')
+  b = ran(b, 'w', 'Write', 5000, '/b.ts')
+  b = ran(b, 'r', 'Read', 6000, '/c.ts')
+  // A denied or failed edit changed nothing; a scratch file outside the project is not uncommitted work.
+  b = ran(b, 'd', 'Edit', 7000, '/d.ts', 'denied')
+  b = ran(b, 'f', 'Edit', 7100, '/e.ts', 'fail')
+  b = ran(b, 't', 'Write', 7200, '/tmp/scratch.txt')
   expect(sinceCommit(b)).toBe(null)
+  expect(sinceCommit({ ...b, commitAt: 0, root: '/' })?.files).toEqual(['/tmp/scratch.txt', '/b.ts', '/a.ts'])
+  expect(sinceCommit({ ...b, commitAt: 0, root: '/tmp' })?.files).toEqual(['/tmp/scratch.txt'])
   const c = { ...b, commitAt: 3000, now: 3000 + 40 * 60_000 }
-  expect(sinceCommit(c)).toEqual({ files: ['/b.ts'], ago: 40 * 60_000 })
-  expect(sinceCommit({ ...c, commitAt: 0 })?.files).toEqual(['/b.ts', '/a.ts'])
+  expect(sinceCommit({ ...c, root: '/' })).toEqual({ files: ['/tmp/scratch.txt', '/b.ts'], ago: 40 * 60_000 })
+  expect(sinceCommit({ ...c, root: '/repo' })?.files).toEqual([])
+  expect(sinceCommit({ ...c, commitAt: 0 })?.files).toEqual(['/tmp/scratch.txt', '/b.ts', '/a.ts'])
   expect(churn(b).map(f => f.path)).toEqual(['/a.ts'])
   expect(insights(b, cfg).tips.some(t => t.startsWith('/a.ts changed 6 times'))).toBe(true)
 })

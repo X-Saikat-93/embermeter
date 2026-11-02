@@ -166,7 +166,8 @@ const refreshBranch = async ($: any) => {
     if (dir) head = await readText($, `${dir.startsWith('/') ? dir : `${root}/${dir}`}/HEAD`)
   }
   const branch = parseHead(head)
-  if (branch !== (await get($)).branch) await set($, b => ({ ...b, branch }))
+  const was = await get($)
+  if (branch !== was.branch || root !== was.root) await set($, b => ({ ...b, branch, root }))
   const commitAt = await lastMove($, root, branch)
   if (commitAt !== (await get($)).commitAt) await set($, b => ({ ...b, commitAt }))
 }
@@ -211,6 +212,8 @@ const tick = async ($: any) => {
       return ctx ? withCtx(withV, ctx) : withV
     })
     if (busy || b.comp === null) await refreshComp($)
+    // A commit made from another terminal while Claude is idle still clears "changed since commit".
+    else if (ticks % 15 === 0) await refreshBranch($)
     await raise($)
   } else if (busy) {
     const now = await $.clock.now()
