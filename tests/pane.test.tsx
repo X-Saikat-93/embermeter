@@ -14,11 +14,11 @@ const PANE = {
   },
 } as const
 
-const engine = (on: any, usd: () => number = () => 0.5, tokens: () => number = () => 40000) => {
+const engine = (on: any, usd: () => number = () => 0.5, tokens: () => number = () => 40000, call: (e: any) => any = () => ({ result: {} })) => {
   on('command.register', () => ({ value: { command: 'embermeter' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
-  on('tool.call', () => ({ result: {} }))
+  on('tool.call', (_: unknown, e: any) => call(e))
   on('clock.now', () => ({ value: 1000 }))
   on('clock.every', () => ({ value: undefined }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: tokens(), percent: tokens() / 2000 }, rateLimits: [], cost: { usd: usd() } } }))
@@ -218,4 +218,41 @@ test('a compaction counts once, only where it stood in the main conversation, an
   const out = await count()
   expect(out.compactions).toBe(2)
   expect(out.lastCompact).toMatchObject({ trigger: 'detected', before: 140000, after: 35000 })
+})
+
+test('main-thread background jobs are kept until their notice, a failed test run fails, and /clear starts over', async ($, on) => {
+  const copied: string[] = []
+  engine(on, undefined, undefined, (e: any) => {
+    if (e.command === 'npm test') return { result: {}, text: 'Tests: 10 passed, 10 total', isError: true }
+    if (e.command === 'npm run dev') return { result: { backgroundTaskId: e.agentId ? 'sub-job' : 'main-job' } }
+    if (e.command === 'npm run watch') return { result: { backgroundTaskId: 'ends-job', backgroundEndsWithFinalResponse: true } }
+    return { result: {} }
+  })
+  on('ui.status', () => ({ value: undefined }))
+  on('prompt.submit', (_: unknown, e: any) => ({ text: e.text }))
+  on('session.end', (_: unknown, e: any) => ({ sessionId: e.sessionId }))
+  on('ui.copy', (_: unknown, e: any) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } } as any
+  })
+  const board = async () => {
+    await $.command.run({ command: 'embermeter', args: 'export' } as any)
+    return JSON.parse(copied[copied.length - 1] ?? '{}')
+  }
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev' })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', agentId: 'sub-1' } as any)
+  await $.tool.call({ tool: 'Bash', command: 'npm run watch' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  let out = await board()
+  expect(out.jobs.map((j: any) => j.id)).toEqual(['main-job'])
+  expect(out.tests).toMatchObject([{ cmd: 'npm test', pass: 10, fail: 1 }])
+
+  await $.prompt.submit({ text: '<task-notification><task-id>other</task-id></task-notification><task-notification><task-id>main-job</task-id><status>completed</status></task-notification>', origin: { kind: 'task-notification' } } as any)
+  expect((await board()).jobs).toMatchObject([{ id: 'main-job', status: 'completed' }])
+
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as any)
+  out = await board()
+  expect(out.jobs).toEqual([])
+  expect(out.tests).toEqual([])
 })

@@ -118,5 +118,5 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 - `tests/instruments.test.ts` covers cache warmth, idle MCP servers, the model what-if, test parsing, background jobs, branch spend and the since-commit count.
 - `tests/draw.test.ts` draws the Spend, Tools and Context pages at both widths and checks that user text arrives escaped.
 - `tests/term.test.ts` checks the cell encoding byte for byte, glyph safety, meter precision, heat colours, motion frames and that every page fits the narrowest width.
-- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards and `/embermeter export` through the real hooks.
+- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards, compaction counting, background jobs, test runs, `/clear` and `/embermeter export` through the real hooks.
 - `scripts/render-docs.ts` renders every page from a fixed sample session. CI runs it as a smoke test, and contributors use it to refresh the README images.
