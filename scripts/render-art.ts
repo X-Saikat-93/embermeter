@@ -24,7 +24,7 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono',
 const EASE = 'calcMode="spline" keyTimes="0;1" keySplines="0.22 1 0.36 1"'
 const W = 880
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const n = (v: number) => Math.round(v * 100) / 100
 
 type T = { size?: number; color?: string; font?: string; weight?: number; anchor?: 'start' | 'middle' | 'end'; italic?: boolean; ls?: number; attrs?: string; inner?: string }
