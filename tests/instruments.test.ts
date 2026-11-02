@@ -21,7 +21,7 @@ import {
   normalize,
   openJobs,
   parseConfig,
-  parseNotice,
+  parseNotices,
   parseTests,
   report,
   sinceCommit,
@@ -155,9 +155,13 @@ test('background jobs open, close by id, and alert once if still running after t
   expect(endJob(b, 'nope', 'killed', 1)).toBe(b)
   expect(newAlerts({ ...b, now: 60_000 }, cfg).some(a => a.key === 'job:bx1')).toBe(false)
   expect(newAlerts({ ...b, now: 140_000 }, cfg).some(a => a.key === 'job:bx1')).toBe(true)
-  expect(parseNotice('<task-notification>\n<task-id>bx1</task-id>\n<status>completed</status>\n</task-notification>')).toEqual({ id: 'bx1', status: 'completed' })
-  expect(parseNotice('<task-id>bx9</task-id>')).toEqual({ id: 'bx9', status: 'ended' })
-  expect(parseNotice('just text')).toBe(null)
+  expect(parseNotices('<task-notification>\n<task-id>bx1</task-id>\n<status>completed</status>\n</task-notification>')).toEqual([{ id: 'bx1', status: 'completed' }])
+  expect(parseNotices('<task-notification><task-id>a</task-id><status>completed</status></task-notification>\n<task-notification><task-id>b</task-id></task-notification>')).toEqual([
+    { id: 'a', status: 'completed' },
+    { id: 'b', status: 'ended' },
+  ])
+  expect(parseNotices('<task-id>bx9</task-id>')).toEqual([{ id: 'bx9', status: 'ended' }])
+  expect(parseNotices('just text')).toEqual([])
 })
 
 test('branch spend adds up across sessions, each counted once', async () => {

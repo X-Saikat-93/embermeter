@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 - Compactions are counted once, and only the main conversation's that stood: a `precompute`, a skipped compaction or a subagent's no longer bumps the count or re-arms the context alerts.
 - Compactions still count, and the context alerts still re-arm, when another plugin (a managed one seated outermost) sends `session.compact` past Embermeter: a window that falls to half or less from 20k tokens or more is read as one, shown as `detected`.
+- Background jobs: a subagent's background commands, and ones that end with their caller's answer, are no longer listed as running forever, and a prompt carrying several task notifications closes each job it names. The System tab no longer animates while idle because a dev server runs.
 
 ## [1.3.0] - 2026-11-01
 

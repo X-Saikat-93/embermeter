@@ -154,7 +154,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. Only the main conversation's compactions that stood count. Where another plugin keeps the compaction event from Embermeter, a window that drops by half or more is read as one (`detected`). |
 | 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node), with the failing trend. |
 | 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
-| 28 | **Background jobs** | Commands Claude ran in the background, until they end or are stopped, with an alert when one is still running two minutes after its turn. |
+| 28 | **Background jobs** | Commands Claude ran in the background in the main conversation, until they end or are stopped, with an alert when one is still running two minutes after its turn. A subagent's own background commands report to that subagent and are not listed. |
 | 29 | **Since the last commit** | Files changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Files changed six or more times get a tip too. |
 
 </details>

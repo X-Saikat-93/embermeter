@@ -424,13 +424,15 @@ const system = (b: Board, cfg: Cfg, W: number): Line[] => {
 const jobLines = (b: Board, cfg: Cfg, W: number): Line[] => {
   const list = b.jobs.slice(-6).reverse()
   if (!list.length) return []
+  // A dev server runs for hours: its lines move only while a turn does, like the rest of the pane.
+  const live = cfg.motion === 'smooth' && b.running
   return [
     gap,
-    title('Background jobs', `${openJobs(b).length} running`, cfg.motion === 'smooth' && openJobs(b).length ? 'flow' : undefined),
+    title('Background jobs', `${openJobs(b).length} running`, live && openJobs(b).length ? 'flow' : undefined),
     ...list.map(j =>
       leader(
         W,
-        [seg(j.end === null ? '▸ ' : '□ ', j.end === null ? 'warn' : 'faint', j.end === null && cfg.motion === 'smooth' ? 'pulse' : undefined), seg(j.cmd, j.end === null ? 'ink' : 'sub')],
+        [seg(j.end === null ? '▸ ' : '□ ', j.end === null ? 'warn' : 'faint', j.end === null && live ? 'pulse' : undefined), seg(j.cmd, j.end === null ? 'ink' : 'sub')],
         [seg(lpad(j.end === null ? dur(b.now - j.at) : short(j.status, 9), 9), j.end === null ? 'warn' : 'faint')],
       ),
     ),

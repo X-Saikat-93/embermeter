@@ -19,7 +19,7 @@ import {
   exportJson,
   isHeavy,
   isTestCommand,
-  parseNotice,
+  parseNotices,
   parseTests,
   sessionStat,
   startJob,
@@ -257,9 +257,13 @@ const hold = (b: Board, tool: string, detail: string, isAgent: boolean): { why: 
 
 // What a finished call says beyond its timing: a background job started or stopped, or a test run's counts.
 async function track($: any, call: Call, input: any, ran: any, status: CallStatus, at: number) {
-  const bg = ran?.result?.backgroundTaskId
-  if (call.tool === 'Bash' && status === 'ok' && typeof bg === 'string') {
-    await set($, b => startJob(b, { id: bg, cmd: short(input.command, 80), at, end: null, status: 'run' }))
+  const r = ran?.result
+  if (call.tool === 'Bash' && status === 'ok' && typeof r?.backgroundTaskId === 'string') {
+    // Only jobs whose end comes back here as a notification: a subagent's reports to that subagent, and one that
+    // ends with its caller's answer sends none.
+    const id: string = r.backgroundTaskId
+    if (!call.agent && !r.backgroundEndsWithFinalResponse && !r.backgroundWakesOwner)
+      await set($, b => startJob(b, { id, cmd: short(input.command, 80), at, end: null, status: 'run' }))
     return
   }
   if (/^(?:TaskStop|KillShell|KillBash)$/.test(call.tool) && status === 'ok') {
@@ -352,12 +356,12 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const text = (e as any).text ?? ''
     // A background task's end comes back as a notification prompt; it closes the job it names.
-    const done = (e as any).origin?.kind === 'task-notification' || String(text).includes('<task-notification') ? parseNotice(text) : null
-    if (done) {
+    const done = (e as any).origin?.kind === 'task-notification' || String(text).includes('<task-notification') ? parseNotices(text) : []
+    if (done.length) {
       const at = await $.clock.now()
-      await set($, b => endJob(b, done.id, done.status, at))
+      await set($, b => done.reduce((x, d) => endJob(x, d.id, d.status, at), b))
     }
-    await note($, done ? 'task' : 'you', text)
+    await note($, done.length ? 'task' : 'you', text)
     return next(e)
   }).catch(($, e, next) => next(e))
 

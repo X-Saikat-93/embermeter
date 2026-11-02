@@ -972,12 +972,16 @@ export const endJob = (b: Board, id: string, status: string, at: number): Board 
 
 export const openJobs = (b: Board) => b.jobs.filter(j => j.end === null)
 
-// ponytail: a background task's end arrives as a notification prompt carrying <task-id> and <status> tags; this reads
-// those tags. A job whose notification never comes stays listed as running until /embermeter reset.
-export const parseNotice = (text: unknown): { id: string; status: string } | null => {
-  if (typeof text !== 'string') return null
-  const id = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(text)?.[1]
-  return id ? { id, status: /<status>\s*([^<\s]+)\s*<\/status>/.exec(text)?.[1] ?? 'ended' } : null
+// ponytail: a background task's end arrives as a notification prompt carrying <task-id> and <status> tags, several
+// to a prompt when tasks end together; this reads each. A job whose notification never comes stays listed as running
+// until /embermeter reset.
+export const parseNotices = (text: unknown): { id: string; status: string }[] => {
+  if (typeof text !== 'string') return []
+  const blocks = text.includes('<task-notification') ? text.split(/<task-notification\b/).slice(1) : [text]
+  return blocks.flatMap(t => {
+    const id = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(t)?.[1]
+    return id ? [{ id, status: /<status>\s*([^<\s]+)\s*<\/status>/.exec(t)?.[1] ?? 'ended' }] : []
+  })
 }
 
 // Spend on the session's branch, added turn by turn; the 40 most recently used branches kept.
