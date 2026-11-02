@@ -88,11 +88,11 @@ test('the terminal paints each tab as coloured cells', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'rtk git status' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await painted(ui)).some(r => /^Context\s+[█▏▎▍▌▋▊▉]+░+\s+20%/.test(r))).toBe(true)
-  expect((await painted(ui)).some(r => /Embermeter/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /^Context\s+━+╸?─+\s+20%/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /EMBERMETER/.test(r))).toBe(true)
   await ui.press({ key: 'tab-tools' })
-  expect((await painted(ui)).some(r => /^Tool leaderboard/.test(r))).toBe(true)
-  expect((await painted(ui)).some(r => /Bash\s+█/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /^TOOL LEADERBOARD ─/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /Bash\s+━/.test(r))).toBe(true)
   await ui.press({ key: 'tab-system' })
   expect((await painted(ui)).some(r => /^Memory/.test(r))).toBe(true)
   // Every tab draws something, and no Raster is wider than the body.
@@ -110,7 +110,7 @@ test('the band above the prompt paints as cells in the terminal', async ($, on) 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ plugin: 'embermeter', component: 'AbovePrompt', surface: 'terminal', props: {} } as any)
-  expect((await painted(ui)).some(r => /ctx [█▏▎▍▌▋▊▉]+░+ 20%/.test(r))).toBe(true)
+  expect((await painted(ui)).some(r => /ctx ━+╸?─+ 20%/.test(r))).toBe(true)
   await ui.unmount()
 })
 
@@ -120,7 +120,7 @@ test('with terminal drawing set to text, the terminal gets plain lines', { optio
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).toBeFalsy()
-  expect(await ui.find({ type: 'Text', text: /^Context\s+[█▏▎▍▌▋▊▉]+░+\s+20%/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Context\s+━+╸?─+\s+20%/ })).toBeTruthy()
   await ui.unmount()
 })
 

@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Background jobs:** background Bash commands until they end or are stopped, on the System tab, with an alert when one outlives its turn by two minutes.
 - **Since the last commit:** files changed since the branch last moved, read from git's files with `fs.stat`, in the header, with tips for long-uncommitted work and files changed six or more times.
 
+### Changed
+- **The terminal pane is redrawn.** Section labels in capitals on a rule that fades from the accent; thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, temperature limit, battery floor and memory limit; two-row bar charts for trends, cost per turn, the 30 days and the thermal trend; pills for the grade, test results and failing streaks; dotted leaders for file and server lists; dotted swimlane tracks. While work runs, the rules of the live sections shimmer along with the meters, and nothing moves when idle.
+
 ## [1.3.0] - 2026-11-01
 
 ### Added

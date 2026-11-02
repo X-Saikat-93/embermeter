@@ -281,7 +281,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | Surface | What you get |
 |---|---|
 | **VS Code**, **desktop app** | The full animated panel, strip and status line |
-| **Terminal (CLI)** | The full panel drawn in coloured cells: heat-gradient meters, sparklines and swimlanes. While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
+| **Terminal (CLI)** | The full panel drawn in coloured cells: capital section labels on fading rules, thin gradient meters with red-line marks, two-row bar charts, grade pills and swimlanes. While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters and section rules (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
 | **Linux** | Vitals and heat guard from `/sys` and `/proc` |
 | **macOS, Windows** | Vitals read `–` and the heat guard rests. Everything else works |
 
