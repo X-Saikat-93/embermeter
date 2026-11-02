@@ -1067,6 +1067,7 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
   const models = modelSplit(b)
   const weight = ctxWeight(b).slice(0, 5)
   const loop = loopWatch(b)
+  const warmth = cacheWarmth(b)
   const left = budgetRunway(b, cfg)
   const month = life ? lastDays(life, b.now, 30) : []
   const monthUsd = month.reduce((s, d) => s + d.usd, 0)
@@ -1093,7 +1094,7 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
     heavy.length ? `- Heaviest files (est.): ${heavy.map(f => `${shortPath(f.path, 40)} ${kfmt(f.out)}`).join(' · ')}` : '',
     etas.length ? `- Rate limits at this pace: ${etas.map(e => `${e.kind.replace(/_/g, ' ')} full in ~${dur(e.etaMs)}`).join(' · ')}` : '',
     loop ? `- **Loop warning:** ${loop.tool} \`${short(loop.detail, 50)}\` ${loop.failing ? 'failed' : 'repeated'} ${loop.n} times` : '',
-    cacheWarmth(b) ? `- Prompt cache: ${cacheText(b)} left · lasts ${b.cacheTtl === CACHE_LONG ? '1h' : '5m'} after a reply` : '',
+    warmth ? `- Prompt cache: ${warmth.leftMs >= 1000 ? `warm, ${dur(warmth.leftMs)} left` : 'cold'} · lasts ${b.cacheTtl === CACHE_LONG ? '1h' : '5m'} after a reply` : '',
     alt.length ? `- Same main-thread tokens at list price: ${alt.map(a => `${a.model} ${money(a.usd)}`).join(' · ')} (paid ${money(alt[0]?.actual)} over ${alt[0]?.turns} turns)` : '',
     idle.length ? `- Loaded MCP servers not called: ${idle.map(r => `${r.server} ${kfmt(r.tokens)}${r.sessions > 1 ? ` (${r.sessions} sessions)` : ''}`).join(' · ')}` : '',
     lc ? `- Last compaction: ${dur(b.now - lc.at)} ago (${lc.trigger})${lc.before !== null && lc.after !== null ? ` · ${kfmt(lc.before)} → ${kfmt(lc.after)} tokens` : ''}${lc.fed.length ? ` · was feeding: ${lc.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ')}` : ''}` : '',

@@ -214,6 +214,6 @@ test('the report carries the new instruments', async () => {
   b = { ...b, lastCompact: { at: 8000, trigger: 'auto', before: 180_000, after: 20_000, fed: [{ name: 'core.ts', out: 9000 }] } }
   const life: Lifetime = addBranch({ sessions: 1, usd: 1, turns: 1, calls: 0 }, 'main', 0, 1, 10_000)
   const r = report({ ...b, now: 12_000 }, cfg, life)
-  for (const s of ['Prompt cache: cache 4m58s left', 'Same main-thread tokens at list price', 'Last compaction', '180k → 20k', 'Tests: last run 10 passed, 2 failed', 'Background jobs running: `npm run dev`', 'By branch (all time): main $1.00'])
+  for (const s of ['Prompt cache: warm, 4m58s left', 'Same main-thread tokens at list price', 'Last compaction', '180k → 20k', 'Tests: last run 10 passed, 2 failed', 'Background jobs running: `npm run dev`', 'By branch (all time): main $1.00'])
     expect(r).toContain(s)
 })
