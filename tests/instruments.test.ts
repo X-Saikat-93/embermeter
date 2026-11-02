@@ -128,6 +128,9 @@ test('what-if reprices main-thread turns at cheaper list prices, leaving out tur
   expect(whatIf(big).find(r => r.model === 'Haiku 5.5')?.usd).toBe(0.75)
   expect(whatIf({ ...b, model: 'claude-haiku-5-5' })).toEqual([])
   expect(whatIf({ ...b, agents: [{ id: 'a', type: 'Explore', desc: '', model: '', status: 'done', startedAt: 5000, endedAt: 8000, tools: 1 }] })).toEqual([])
+  // One started before the turn and still spending during it counts too; one that ended before it does not.
+  expect(whatIf({ ...b, agents: [{ id: 'a', type: 'Explore', desc: '', model: '', status: 'run', startedAt: -5000, endedAt: null, tools: 1 }] })).toEqual([])
+  expect(whatIf({ ...b, agents: [{ id: 'a', type: 'Explore', desc: '', model: '', status: 'done', startedAt: -9000, endedAt: -1000, tools: 1 }] }).length).toBe(1)
 })
 
 test('test output is counted for each runner, totals winning over per-file lines', async () => {

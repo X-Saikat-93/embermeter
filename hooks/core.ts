@@ -911,10 +911,11 @@ const ALTERNATIVES: { model: string; skip: RegExp; rates: [number, number, numbe
   { model: 'Haiku 5.5', skip: /haiku/i, rates: [0.1, 0.5, 0.01, 0.125], over: [100_000, 5] },
 ]
 
-// The main thread's turns repriced at a cheaper model's list price, against what they cost. Turns that ran a subagent
-// are left out: their cost includes tokens this board never sees. Only models cheaper than that are listed.
+// The main thread's turns repriced at a cheaper model's list price, against what they cost. Turns a subagent ran
+// during (one started earlier in the background included) are left out: their cost includes tokens this board never
+// sees. Only models cheaper than that are listed.
 export const whatIf = (b: Board): { model: string; usd: number; actual: number; turns: number }[] => {
-  const turns = b.turns.filter(t => t.tokens && t.usd !== null && !b.agents.some(a => a.startedAt >= t.at - t.ms && a.startedAt <= t.at))
+  const turns = b.turns.filter(t => t.tokens && t.usd !== null && !b.agents.some(a => a.startedAt <= t.at && (a.endedAt ?? b.now) >= t.at - t.ms))
   const actual = turns.reduce((s, t) => s + (t.usd ?? 0), 0)
   if (!turns.length || actual <= 0) return []
   return ALTERNATIVES.filter(a => !a.skip.test(b.model))

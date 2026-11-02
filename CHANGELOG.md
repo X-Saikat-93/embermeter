@@ -26,6 +26,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Test runs: a run that exits non-zero shows as failed (a suite that did not load, a pytest error, a coverage floor). `node --test`, `./gradlew test`, `vendor/bin/phpunit`, `bundle exec rspec`, `python -m unittest`, `just test` and `cargo nextest` are recognised, RSpec and PHPUnit totals are read, and the shell's `test -f` no longer counts.
 - Since the last commit: only edits that ran count (not denied or failed ones), only files inside the project, and a commit made while Claude is idle clears the count within 15 seconds.
 - The cache countdown no longer switches to an hour for good after a turn that compacted mid-way.
+- Same tokens, cheaper model: turns a background subagent was still spending during are left out, so the saving is not overstated.
 - The report reads "Prompt cache: warm, 4m00s left" or "cold" instead of "cache cache cold left".
 
 ## [1.3.0] - 2026-11-01
