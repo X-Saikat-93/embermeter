@@ -60,7 +60,7 @@ Lists are capped, so a long session stays flat in memory:
 
 `normalize()` fills in any field missing from a board stored by an older version. That way, after an upgrade, a hot reload or a resumed session never crashes on an old shape.
 
-Lifetime totals (`sessions`, `turns`, `calls`, `usd`) and the same four totals per local calendar day (the last 60 days) are the only values kept across sessions, in `$.store`.
+Lifetime totals (`sessions`, `turns`, `calls`, `usd`), the same four totals per local calendar day (the last 60 days), the last 20 sessions, spend per branch and each MCP server's run of unused sessions (the 40 most recent of each) are the only values kept across sessions, in `$.store`.
 
 ## Analytics
 
@@ -83,6 +83,14 @@ Lifetime totals (`sessions`, `turns`, `calls`, `usd`) and the same four totals p
 | **Heaviest files** | Each call keeps the file it worked on, so the size of its result is credited to that file. |
 | **Week over week** | Spend over the last seven calendar days against the seven before. |
 | **Branch** | Read from `.git/HEAD` under the project root at most every 15 seconds. A worktree's `.git` file is followed to the real git directory. |
+| **Cache warmth** | The last reply's time plus the cache lifetime, against now. The lifetime is 5 minutes until a reply after 5–60 idle minutes rewrites under half the window, which shows an hour-long cache. |
+| **Loaded, never called** | Loaded MCP tools grouped by server (`mcp__<server>__` prefix) against the calls made to that prefix. The lifetime store keeps each server's run of sessions without a call. |
+| **Same tokens, cheaper model** | Each main-thread turn's tokens times list prices kept in `core.ts`; Haiku's 5x rate above 100k tokens is applied by the window size at the turn's end. Turns that overlapped a subagent's start are left out. |
+| **Last compaction** | On a main-conversation compaction (not `precompute`, not skipped): `tokensBefore`, `tokensAfter`, and what fed the window since the previous one. |
+| **Test runs** | Bash commands whose command words name a test runner; counts are read from the output's "Tests" total line, else summed across it. |
+| **Background jobs** | Opened by a Bash result's `backgroundTaskId`; closed by `TaskStop` or by the notification prompt that names the task. |
+| **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files with an Edit or Write after it. |
+| **Branch spend** | Each turn's cost added to the session's branch in the lifetime store, the 40 most recent kept. |
 | **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
 
 ## Heat guard
@@ -107,6 +115,7 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 ## Testing
 
 - `tests/core.test.ts` covers every analytic and transition in `core.ts`.
+- `tests/instruments.test.ts` covers cache warmth, idle MCP servers, the model what-if, test parsing, background jobs, branch spend and the since-commit count.
 - `tests/draw.test.ts` draws the Spend, Tools and Context pages at both widths and checks that user text arrives escaped.
 - `tests/term.test.ts` checks the cell encoding byte for byte, glyph safety, meter precision, heat colours, motion frames and that every page fits the narrowest width.
 - `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards and `/embermeter export` through the real hooks.

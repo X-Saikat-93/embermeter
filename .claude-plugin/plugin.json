@@ -85,6 +85,12 @@
       "type": "boolean",
       "default": false
     },
+    "cacheAlert": {
+      "title": "Cache alert",
+      "description": "Toast a minute before the prompt cache goes cold after a reply, when the window holds 20k tokens or more; the countdown shows either way",
+      "type": "boolean",
+      "default": false
+    },
     "quietHours": {
       "title": "Quiet hours",
       "description": "Hours with no toasts, as start-end in 24h local time (for example 22-7); the panel keeps updating. Empty turns it off",

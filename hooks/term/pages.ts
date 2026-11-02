@@ -3,8 +3,11 @@
 import type { Board, Lifetime, Tab } from '../../types'
 import type { Cfg } from '../core'
 import {
+  branchBoard,
   budgetRunway,
   cacheHit,
+  cacheText,
+  cacheWarmth,
   compactPct,
   compliance,
   costRate,
@@ -15,21 +18,25 @@ import {
   fileWeight,
   forecast,
   health,
+  idleMcp,
   insights,
   kfmt,
   lastDays,
   limitEta,
   modelSplit,
   money,
+  openJobs,
   rereads,
   short,
   shortPath,
+  sinceCommit,
   streaks,
   throughput,
   toolBoard,
   turnOver,
   until,
   weekCompare,
+  whatIf,
 } from '../core'
 import type { Anim, Line, Seg, Tone } from './segments'
 import { fit, gap, heatCell, level, line, lpad, meter, pad, plain, seg, spark, title } from './segments'
@@ -54,8 +61,10 @@ export const termHeader = (b: Board, cfg: Cfg, cols?: number): Line[] => {
   const h = health(b, cfg)
   const busy = b.running || b.agents.some(a => a.status === 'run')
   const live = cfg.motion === 'smooth' && busy
-  const state = b.running ? `running ${dur(b.now - b.turnStart)}` : busy ? 'agents working' : 'idle'
-  const where = [`turn ${b.turnCount}`, dur(b.now - b.startedAt), b.branch ? `on ${short(b.branch, 20)}` : '', b.model ? short(b.model, 28) : ''].filter(Boolean).join(' · ')
+  const cache = cacheText(b)
+  const state = b.running ? `running ${dur(b.now - b.turnStart)}` : busy ? 'agents working' : `idle${cache ? ` · ${cache}` : ''}`
+  const sc = sinceCommit(b)
+  const where = [`turn ${b.turnCount}`, dur(b.now - b.startedAt), b.branch ? `on ${short(b.branch, 20)}` : '', sc?.files.length ? `${sc.files.length} changed since commit` : '', b.model ? short(b.model, 28) : ''].filter(Boolean).join(' · ')
   return [
     line(
       seg(` ${h.grade} `, GRADE_TONE[h.grade], live ? 'pulse' : undefined),
@@ -124,7 +133,7 @@ const overview = (b: Board, cfg: Cfg, W: number): Line[] => {
 
 const SLICE_TONES: Tone[] = ['info', 'good', 'accent', 'warn', 'sub', 'bad', 'faint']
 
-const context = (b: Board, W: number): Line[] => {
+const context = (b: Board, life: Lifetime | null, W: number): Line[] => {
   const cp = b.comp
   const out: Line[] = []
   const mw = Math.max(8, W - 44)
@@ -179,6 +188,17 @@ const context = (b: Board, W: number): Line[] => {
     for (const m of cp.memory.slice(0, 6)) out.push(line(seg(`  ${pad(shortPath(m.path, W - 14), W - 14)} `, 'ink'), seg(lpad(kfmt(m.tokens), 6), 'sub')))
     for (const m of cp.mcp.filter(x => x.loaded).slice(0, 6)) out.push(line(seg(`  ${pad(short(`${m.server} · ${m.name}`, W - 14), W - 14)} `, 'ink'), seg(lpad(kfmt(m.tokens), 6), 'sub')))
   }
+  const idle = idleMcp(b, life)
+  if (idle.length) {
+    out.push(gap, title('Loaded, never called', 'MCP server · tokens every request'))
+    for (const r of idle.slice(0, 5)) out.push(line(seg(`  ${pad(short(r.server, W - 30), W - 30)} `, 'ink'), seg(lpad(kfmt(r.tokens), 6), 'warn'), seg(`  ${r.sessions > 1 ? `${r.sessions} sessions` : 'this session'}`, 'faint')))
+  }
+  const lc = b.lastCompact
+  if (lc) {
+    out.push(gap, title('Last compaction', `${dur(b.now - lc.at)} ago · ${lc.trigger}`))
+    if (lc.before !== null && lc.after !== null) out.push(line(seg('  '), seg(kfmt(lc.before), 'warn'), seg(' → ', 'faint'), seg(kfmt(lc.after), 'good'), seg(' tokens', 'sub')))
+    out.push(plain(`  was feeding: ${lc.fed.length ? lc.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ') : 'no tool output recorded'}`, 'sub'))
+  }
   return out
 }
 
@@ -204,6 +224,12 @@ const spend = (b: Board, cfg: Cfg, life: Lifetime | null, W: number): Line[] => 
   rows.forEach((m, i) =>
     out.push(line(seg(`  ${pad(short(m.model, 20), 20)} `, 'ink'), ...meter(m.share, Math.max(6, W - 50), (['warn', 'info', 'good', 'accent', 'sub'] as Tone[])[i] ?? 'info'), seg(` ${lpad(`${m.turns}t`, 4)} ${lpad(kfmt(m.output), 6)} `, 'sub'), seg(lpad(money(m.usd), 7), 'ink'))),
   )
+  const alt = whatIf(b)
+  if (alt.length) {
+    out.push(gap, title('Same tokens, cheaper model', `list price · ${alt[0]?.turns} main-thread turns`))
+    out.push(line(seg(`  ${pad('as run', 20)} `, 'sub'), seg(lpad(money(alt[0]?.actual), 7), 'ink')))
+    for (const a of alt) out.push(line(seg(`  ${pad(a.model, 20)} `, 'ink'), seg(lpad(money(a.usd), 7), 'good'), seg(`  ${Math.round((1 - a.usd / a.actual) * 100)}% less`, 'faint')))
+  }
   const priciest = b.turns.filter(t => t.usd !== null && t.usd > 0).slice(-12).sort((x, y) => (y.usd ?? 0) - (x.usd ?? 0)).slice(0, 3)
   if (priciest.length) {
     out.push(gap, title('Priciest turns', 'what fed them'))
@@ -221,6 +247,12 @@ const spend = (b: Board, cfg: Cfg, life: Lifetime | null, W: number): Line[] => 
       line(seg('  today '), seg(money(today), cfg.dailyBudgetUsd > 0 && today >= cfg.dailyBudgetUsd ? 'bad' : 'warn'), seg(cfg.dailyBudgetUsd > 0 ? ` of ${money(cfg.dailyBudgetUsd)}` : '', 'sub')),
       plain(`  last 7 days ${money(wk.week)}${wk.change !== null ? ` · ${wk.change >= 0 ? '+' : ''}${Math.round(wk.change * 100)}% on the week before` : ''}`, wk.change !== null && wk.change > 0.25 ? 'warn' : 'sub'),
     )
+    const branches = branchBoard(life).slice(0, 6)
+    if (branches.length) {
+      out.push(gap, title('By branch', 'all time · sessions · turns · cost'))
+      for (const x of branches)
+        out.push(line(seg(`  ${x.branch === b.branch ? '▸' : ' '} ${pad(short(x.branch, W - 30), W - 30)} `, 'ink'), seg(`${lpad(`${x.sessions}s`, 4)} ${lpad(`${x.turns}t`, 5)} `, 'sub'), seg(lpad(money(x.usd), 7), 'warn')))
+    }
     const recent = (life.recent ?? []).slice(-6).reverse()
     if (recent.length) {
       out.push(gap, title('Recent sessions', 'grade · length · turns · cost'))
@@ -242,6 +274,11 @@ const tools = (b: Board, W: number): Line[] => {
   if (st.length) {
     out.push(gap, title('Failing in a row'))
     for (const s of st.slice(0, 4)) out.push(line(seg(`  ${pad(short(s.tool, 14), 14)} `, 'ink'), seg(`${s.n}× `, 'bad'), seg(short(s.detail, W - 24), 'sub')))
+  }
+  const runs = b.tests.slice(-5).reverse()
+  if (runs.length) {
+    out.push(gap, title('Test runs', b.tests.length > 1 ? `failing ${b.tests.slice(-6).map(t => t.fail).join(' → ')}` : ''))
+    for (const t of runs) out.push(line(seg(`  ${lpad(dur(b.now - t.at), 6)} ago `, 'faint'), seg(lpad(`${t.pass} pass`, 9), 'good'), seg(lpad(`${t.fail} fail`, 8), t.fail ? 'bad' : 'faint'), seg(`  ${short(t.cmd, W - 30)}`, 'sub')))
   }
   out.push(gap)
   return out
@@ -315,6 +352,23 @@ const system = (b: Board, cfg: Cfg, W: number): Line[] => {
       `  ${[cfg.pauseOnBattery ? 'pause on battery' : '', cfg.maxMemPct > 0 ? `memory ≤ ${cfg.maxMemPct}%` : '', cfg.turnBudgetUsd > 0 ? `turn ≤ ${money(cfg.turnBudgetUsd)}` : '', cfg.loopBreak ? 'loop breaker' : ''].filter(Boolean).join(' · ') || 'extra guards off'}`,
       'faint',
     ),
+    ...jobLines(b, W),
+  ]
+}
+
+const jobLines = (b: Board, W: number): Line[] => {
+  const list = b.jobs.slice(-6).reverse()
+  if (!list.length) return []
+  return [
+    gap,
+    title('Background jobs', `${openJobs(b).length} running`),
+    ...list.map(j =>
+      line(
+        seg(`  ${j.end === null ? '▸' : '□'} `, j.end === null ? 'warn' : 'faint'),
+        seg(pad(short(j.cmd, W - 26), W - 26), j.end === null ? 'ink' : 'sub'),
+        seg(` ${lpad(j.end === null ? dur(b.now - j.at) : short(j.status, 9), 9)}`, j.end === null ? 'warn' : 'faint'),
+      ),
+    ),
   ]
 }
 
@@ -323,7 +377,7 @@ const width = (cols?: number) => Math.max(40, Math.min(160, cols ?? 80))
 
 const PAGES: Partial<Record<Tab, (b: Board, cfg: Cfg, life: Lifetime | null, W: number) => Line[]>> = {
   overview: (b, cfg, _l, W) => overview(b, cfg, W),
-  context: (b, _c, _l, W) => context(b, W),
+  context: (b, _c, l, W) => context(b, l, W),
   spend: spend,
   tools: (b, _c, _l, W) => tools(b, W),
   files: (b, _c, _l, W) => files(b, W),
@@ -352,5 +406,7 @@ export const termStrip = (b: Board, cfg: Cfg): Line => {
   if (v?.tempC != null) parts.push([seg(`${Math.round(v.tempC)}°`, level(v.tempC / (cfg.maxTempC + 5)))])
   if (v?.pct != null) parts.push([seg(`bat ${v.pct}%${v.discharging ? '↓' : ''}`, v.discharging && v.pct < cfg.minBatteryPct ? 'bad' : 'sub')])
   if (c?.usd != null) parts.push([seg(money(c.usd), 'warn')])
+  const w = cacheWarmth(b)
+  if (w) parts.push([seg(cacheText(b), w.leftMs < 1000 ? 'faint' : w.leftMs <= 60_000 ? 'warn' : 'good')])
   return { segs: parts.flatMap((p, i) => (i ? [sep, ...p] : p)) }
 }

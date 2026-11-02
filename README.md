@@ -148,6 +148,14 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 19 | **Failing in a row** | Tools whose latest calls failed back to back, with the input that failed. |
 | 20 | **Session history** | Your last 20 sessions: grade, length, turns, tool calls, cost and branch. |
 | 21 | **Turn-cost stop and loop breaker** | Opt-in guards: refuse tool calls once one turn passes a cost, or a third identical call in a row, so Claude stops and asks instead of burning tokens. |
+| 22 | **Cache warmth** | A countdown from each reply to when the prompt cache goes cold, in the strip, the header and the status line. It learns when your account caches for an hour. Optional: a toast a minute before (`cacheAlert`). |
+| 23 | **Loaded, never called** | MCP servers whose tools sit in every request but were not called, with their tokens and how many sessions in a row they have gone unused. |
+| 24 | **Same tokens, cheaper model** | The main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, against what they cost. Turns that ran subagents are left out. |
+| 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. |
+| 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node), with the failing trend. |
+| 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
+| 28 | **Background jobs** | Commands Claude ran in the background, until they end or are stopped, with an alert when one is still running two minutes after its turn. |
+| 29 | **Since the last commit** | Files changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Files changed six or more times get a tip too. |
 
 </details>
 
@@ -257,6 +265,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | `longTurnMin` | `10` | Alert when one turn runs longer than this many minutes; `0` turns it off |
 | `turnBudgetUsd` | `0` | Refuse tool calls once one turn has cost this much, so Claude stops and asks; `0` turns it off |
 | `loopBreak` | `false` | Refuse a third identical tool call in a row (same tool and input) |
+| `cacheAlert` | `false` | Toast a minute before the prompt cache goes cold, when the window holds 20k tokens or more |
 | `quietHours` | empty | Hours with no toasts, such as `22-7` (local time). Alerts still go to the log |
 | `guard` | `true` | Heat guard on or off |
 | `maxTempC` | `80` | CPU temperature limit for the heat guard |
@@ -360,7 +369,7 @@ The built-in pattern matches whole command words, such as `npm test`, `cargo bui
 <summary><b>Do the numbers match my bill?</b></summary>
 <br>
 
-Cost and rate limits come from Claude Code's own `session.usage`. The context composition is the engine's local estimate: a close guide, not an invoice.
+Cost and rate limits come from Claude Code's own `session.usage`. The context composition is the engine's local estimate: a close guide, not an invoice. **Same tokens, cheaper model** uses list prices from October 2026 kept in the code, so it can drift when prices change.
 </details>
 
 <details>
@@ -378,10 +387,7 @@ The loop watch saw the same call three times in a row (say, `npm test` with noth
 </details>
 
 **On the bench next:**
-- **Git changes:** dirty files and lines changed, if it can be done without starting a process.
-- **Background jobs:** a watch on dev servers and watchers left running.
-- **Cache warmth:** how long the prompt cache stays warm after a turn.
-- **Vitals for macOS and Windows.**
+- **Vitals for macOS and Windows,** if they can be read without starting a process ([#3](https://github.com/X-Saikat-93/embermeter/issues/3)).
 
 Ideas are welcome in [Discussions](https://github.com/X-Saikat-93/embermeter/discussions).
 

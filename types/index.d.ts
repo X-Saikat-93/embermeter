@@ -35,8 +35,8 @@ export type Call = {
 // `out`: estimated tokens the tool's results fed back into the context (absent on boards stored before it existed).
 export type ToolStat = { n: number; ok: number; fail: number; denied: number; totalMs: number; durs: number[]; out?: number }
 
-// `out`: estimated tokens this file's reads fed back into the context.
-export type FileStat = { read: number; edit: number; write: number; last: number; out?: number }
+// `out`: estimated tokens this file's reads fed back into the context. `lastEdit`: when an Edit or Write last touched it.
+export type FileStat = { read: number; edit: number; write: number; last: number; out?: number; lastEdit?: number }
 
 // Readings of one rate-limit window, kept while the window stays the same (same reset time).
 export type LimitTrack = { resetsAt: string | null; pts: [number, number][] }
@@ -69,7 +69,18 @@ export type Turn = {
   tokens: Tokens | null
   // What fed this turn's context most: files or tools, by estimated tokens, heaviest first.
   fed?: { name: string; out: number }[]
+  // Tokens in the window when the turn ended: the prompt size its requests resent.
+  ctxTokens?: number | null
 }
+
+// One compaction of the main conversation: what it shrank, and what had been feeding the window before it.
+export type CompactSnap = { at: number; trigger: string; before: number | null; after: number | null; fed: { name: string; out: number }[] }
+
+// One test command's result, as counted from its output.
+export type TestRun = { at: number; cmd: string; pass: number; fail: number }
+
+// A Bash command run in the background. `end` stays null until it is stopped or its notification says it ended.
+export type Job = { id: string; cmd: string; at: number; end: number | null; status: string }
 
 export type Slice = { name: string; tokens: number; kind: string }
 
@@ -123,6 +134,13 @@ export type Board = {
   compactions: number
   guardBlocks: number
   alerts: string[]
+  // How long the prompt cache stays warm after a reply: 5 minutes, or an hour once a cache read is seen after a longer gap.
+  cacheTtl: number
+  lastCompact: CompactSnap | null
+  tests: TestRun[]
+  jobs: Job[]
+  // When the current branch last moved (a commit, reset or pull), from git's own files; null when unknown.
+  commitAt: number | null
 }
 
 export type Tab = 'overview' | 'context' | 'spend' | 'tools' | 'files' | 'agents' | 'system' | 'log'
@@ -132,8 +150,24 @@ export type DayStat = { sessions: number; usd: number; turns: number; calls: num
 // One past session, keyed by when it started.
 export type SessionStat = { at: number; ms: number; usd: number; turns: number; calls: number; grade: string; branch: string }
 
+// Spend on one git branch across sessions. `session`: when the last session counted began, so each counts once.
+export type BranchStat = { usd: number; turns: number; sessions: number; last: number; session: number }
+
+// One MCP server's tools in the window: sessions in a row it was loaded and never called, and the tokens it last held.
+export type McpStat = { idle: number; session: number; tokens: number }
+
 // `days`: totals per local date (YYYY-MM-DD), the most recent 60 kept. `recent`: the last 20 sessions, newest last.
-export type Lifetime = { sessions: number; usd: number; turns: number; calls: number; days?: Record<string, DayStat>; recent?: SessionStat[] }
+// `branches`: spend per git branch, the 40 most recent. `mcp`: MCP servers by name, the 40 most recent.
+export type Lifetime = {
+  sessions: number
+  usd: number
+  turns: number
+  calls: number
+  days?: Record<string, DayStat>
+  recent?: SessionStat[]
+  branches?: Record<string, BranchStat>
+  mcp?: Record<string, McpStat>
+}
 
 declare module 'claude-code' {
   interface PluginState {

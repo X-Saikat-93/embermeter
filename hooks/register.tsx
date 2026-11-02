@@ -3,7 +3,9 @@ import type { Register } from 'claude-code'
 
 import type { Agent, Board, Call, CallStatus, Ctx, Lifetime, Tab, Vitals } from '../types'
 import {
+  addBranch,
   addDay,
+  addTest,
   compacted,
   countCpus,
   dayKey,
@@ -11,11 +13,18 @@ import {
   dur,
   emptyBoard,
   endAgent,
+  endJob,
   endTurn,
   estTokens,
   exportJson,
   isHeavy,
+  isTestCommand,
+  parseNotice,
+  parseTests,
   sessionStat,
+  startJob,
+  trackMcp,
+  turnFeed,
   statusLine,
   turnOver,
   turnsCsv,
@@ -158,6 +167,21 @@ const refreshBranch = async ($: any) => {
   }
   const branch = parseHead(head)
   if (branch !== (await get($)).branch) await set($, b => ({ ...b, branch }))
+  const commitAt = await lastMove($, root, branch)
+  if (commitAt !== (await get($)).commitAt) await set($, b => ({ ...b, commitAt }))
+}
+
+// When the branch last moved (commit, reset, pull): the mtime of its reflog, else its ref, else HEAD's reflog (a
+// worktree keeps only that one). Stat only, no git process; null when none is there.
+const lastMove = async ($: any, root: string, branch: string): Promise<number | null> => {
+  const dir = gitDirOf(await readText($, `${root}/.git`)) ?? '.git'
+  const git = dir.startsWith('/') ? dir : `${root}/${dir}`
+  const paths = [...(branch ? [`${git}/logs/refs/heads/${branch}`, `${git}/refs/heads/${branch}`] : []), `${git}/logs/HEAD`]
+  for (const p of paths) {
+    const st = await $.fs.stat(p).catch(() => null)
+    if (st?.kind === 'file' && Number.isFinite(st.mtimeMs)) return st.mtimeMs
+  }
+  return null
 }
 
 // ---------------------------------------------------------------- side effects
@@ -229,6 +253,23 @@ const hold = (b: Board, tool: string, detail: string, isAgent: boolean): { why: 
   if (over) return { why: `turn-cost stop: ${over}`, ask: 'Stop calling tools, summarise what is done and ask the user how to continue.' }
   if (!isAgent && cfg.loopBreak && wouldLoop(b, tool, detail)) return { why: `loop breaker: this exact ${tool} call already ran twice in a row`, ask: 'Change the approach (different input or tool) or ask the user.' }
   return null
+}
+
+// What a finished call says beyond its timing: a background job started or stopped, or a test run's counts.
+async function track($: any, call: Call, input: any, ran: any, status: CallStatus, at: number) {
+  const bg = ran?.result?.backgroundTaskId
+  if (call.tool === 'Bash' && status === 'ok' && typeof bg === 'string') {
+    await set($, b => startJob(b, { id: bg, cmd: short(input.command, 80), at, end: null, status: 'run' }))
+    return
+  }
+  if (/^(?:TaskStop|KillShell|KillBash)$/.test(call.tool) && status === 'ok') {
+    const id = input.task_id ?? input.shell_id ?? ran?.result?.task_id
+    if (typeof id === 'string') await set($, b => endJob(b, id, 'killed', at))
+    return
+  }
+  if (call.tool !== 'Bash' || status === 'denied' || typeof input.command !== 'string' || !isTestCommand(input.command)) return
+  const counts = parseTests(ran?.text)
+  if (counts) await set($, b => addTest(b, { at, cmd: short(input.command, 80), ...counts }))
 }
 
 async function denyHeld($: any, tool: string, held: { why: string; ask: string }) {
@@ -309,7 +350,14 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    await note($, 'you', (e as any).text ?? '')
+    const text = (e as any).text ?? ''
+    // A background task's end comes back as a notification prompt; it closes the job it names.
+    const done = (e as any).origin?.kind === 'task-notification' || String(text).includes('<task-notification') ? parseNotice(text) : null
+    if (done) {
+      const at = await $.clock.now()
+      await set($, b => endJob(b, done.id, done.status, at))
+    }
+    await note($, done ? 'task' : 'you', text)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -333,7 +381,12 @@ export const register: Register = (on, options) => {
       await note($, 'main', `${e.reason} · ${dur(t?.ms)} · ${t?.tools ?? 0} tools${tok}${t?.usd != null ? ` · ${money(t.usd)}` : ''}`, e.reason === 'answer' ? 'done' : 'error')
       const add = { turns: 1, calls: t?.tools ?? 0, usd: t?.usd ?? 0 }
       const after = await get($)
-      await saveLife($, l => withSession(addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add), sessionStat(after, cfg)))
+      await saveLife($, l =>
+        trackMcp(
+          addBranch(withSession(addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add), sessionStat(after, cfg)), after.branch, after.startedAt, add.usd, now),
+          after,
+        ),
+      )
       await refreshComp($, true)
       await raise($)
     } else {
@@ -354,7 +407,14 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.compact', async ($, e, next) => {
-    const out = await next(e)
+    const before = await get($)
+    const out: any = await next(e)
+    // What had been feeding the window, kept for the main conversation's real compactions only.
+    if (e.agentId === undefined && e.trigger !== 'precompute' && out?.skip === undefined) {
+      const at = await $.clock.now()
+      const fed = turnFeed(before, before.lastCompact?.at ?? before.startedAt, 5)
+      await set($, b => ({ ...b, lastCompact: { at, trigger: String(e.trigger), before: out?.tokensBefore ?? null, after: out?.tokensAfter ?? null, fed } }))
+    }
     await set($, compacted)
     await note($, 'context', 'compacted', 'warn')
     await refreshComp($, true)
@@ -385,6 +445,7 @@ export const register: Register = (on, options) => {
     const end = await $.clock.now()
     await set($, b => finishCall(b, call.id, status, end - at, estTokens((ran as any).text)))
     if (status === 'fail') await note($, call.tool, `failed · ${call.detail}`, 'error')
+    await track($, call, input, ran, status, end)
     return ran
   }).catch(($, e, next) => next(e)) // fail open: a dashboard fault never blocks a tool
 
@@ -459,7 +520,7 @@ export const register: Register = (on, options) => {
     // Each tab's picture, drawn only for the tab on show; the log tab is text alone.
     const pages: Partial<Record<Tab, () => any>> = {
       overview: () => picture(overview(D, b, cfg), `Overview · ${statusText(b)}`),
-      context: () => picture(contextPage(D, b), `Context · ${kfmt(b.ctx?.tokens)} of ${kfmt(b.ctx?.window)}`),
+      context: () => picture(contextPage(D, b, life), `Context · ${kfmt(b.ctx?.tokens)} of ${kfmt(b.ctx?.window)}`),
       spend: () => picture(spend(D, b, cfg, life), `Spend · ${money(b.ctx?.usd)} this session`),
       tools: () => picture(drawTools(D, b), 'Tool leaderboard'),
       files: () => picture(drawFiles(D, b), 'File heatmap'),

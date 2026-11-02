@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **Cache warmth:** a countdown from each reply to when the prompt cache goes cold, in the strip, header, status line and report. It learns an hour-long cache from a warm reply after a long gap. `cacheAlert` toasts a minute before.
+- **Loaded, never called:** MCP servers whose tools sit in every request without a call, with their tokens and their run of unused sessions, plus a tip.
+- **Same tokens, cheaper model:** the main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, on the Spend tab and in the report.
+- **Last compaction:** tokens before and after, and what had been feeding the window, on the Context tab and in the report.
+- **Test runs:** passed and failed counts parsed from test commands, with the failing trend, on the Tools tab.
+- **By branch:** spend, sessions and turns per git branch across sessions, on the Spend tab and in the report.
+- **Background jobs:** background Bash commands until they end or are stopped, on the System tab, with an alert when one outlives its turn by two minutes.
+- **Since the last commit:** files changed since the branch last moved, read from git's files with `fs.stat`, in the header, with tips for long-uncommitted work and files changed six or more times.
+
 ## [1.3.0] - 2026-11-01
 
 ### Added
