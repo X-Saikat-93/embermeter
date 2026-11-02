@@ -34,7 +34,7 @@ sequenceDiagram
   P->>P: draw.ts eases from the previous board
 ```
 
-1. **Events in.** `register.tsx` listens to `prompt.submit`, `turn.start`, `turn.complete`, `tool.check`, `tool.call`, `agent.spawn`, `session.measure` and `session.compact`. Each handler maps the event to one `core.ts` transition (`startCall`, `endTurn`, `spawnAgent`…) and writes the new board to the `board` atom.
+1. **Events in.** `register.tsx` listens to `prompt.submit`, `turn.start`, `turn.complete`, `tool.check`, `tool.call`, `agent.spawn`, `session.measure`, `session.compact` and `session.end` (a `/clear`, which starts the board over since no `session.start` follows). Each handler maps the event to one `core.ts` transition (`startCall`, `endTurn`, `spawnAgent`…) and writes the new board to the `board` atom.
 2. **Sensors.** One `$.clock.every` timer. Sensors (`/sys`, `/proc`) are sampled every 5 seconds. The clock ticks every second only while a turn or a subagent is running. The context breakdown (`session.usage({ breakdown: 'summary' })`, a local estimate) is refreshed at most every 15 seconds, and always after a turn or a compaction.
 3. **Render.** `ui.render` hooks for `Pane` and `AbovePrompt` read the atom, so any write redraws them. `register.tsx` keeps the previously drawn board for each site, and `draw.ts` uses it to ease values from the old reading to the new one.
 
@@ -60,7 +60,7 @@ Lists are capped, so a long session stays flat in memory:
 
 `normalize()` fills in any field missing from a board stored by an older version. That way, after an upgrade, a hot reload or a resumed session never crashes on an old shape.
 
-Lifetime totals (`sessions`, `turns`, `calls`, `usd`) and the same four totals per local calendar day (the last 60 days) are the only values kept across sessions, in `$.store`.
+Lifetime totals (`sessions`, `turns`, `calls`, `usd`), the same four totals per local calendar day (the last 60 days), the last 20 sessions, spend per branch and each MCP server's run of unused sessions (the 40 most recent of each) are the only values kept across sessions, in `$.store`.
 
 ## Analytics
 
@@ -82,8 +82,16 @@ Lifetime totals (`sessions`, `turns`, `calls`, `usd`) and the same four totals p
 | **Long turn** | Fires once per turn when it runs past `longTurnMin`, naming the last tool call. |
 | **Heaviest files** | Each call keeps the file it worked on, so the size of its result is credited to that file. |
 | **Week over week** | Spend over the last seven calendar days against the seven before. |
-| **Branch** | Read from `.git/HEAD` under the project root at most every 15 seconds. A worktree's `.git` file is followed to the real git directory. |
-| **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
+| **Branch** | Read from `.git/HEAD` under the project root at most every 15 seconds, idle or not. A worktree's `.git` file is followed to the real git directory. |
+| **Cache warmth** | The last reply's time plus the cache lifetime, against now. The lifetime is 5 minutes until a reply after 5–60 idle minutes rewrites under half the window, which shows an hour-long cache. A turn whose window shrank (a compaction rewrites only the shorter prompt) proves nothing. |
+| **Loaded, never called** | Loaded MCP tools grouped by server (`mcp__<server>__` prefix) against the calls made to that prefix. The lifetime store keeps each server's run of sessions without a call. |
+| **Same tokens, cheaper model** | Each main-thread turn's tokens times list prices kept in `core.ts`; Haiku's 5x rate above 100k tokens is applied by the window size at the turn's end. Turns any subagent was running during are left out, since their cost includes its tokens. |
+| **Last compaction** | On a main-conversation compaction (not `precompute`, not skipped): `tokensBefore`, `tokensAfter`, and what fed the window since the previous one. Where the `session.compact` hook never runs (a managed plugin seated outermost can send it past), a context sample that falls to half or less from 20k tokens or more counts as one, recorded as `detected`. |
+| **Test runs** | Bash commands whose command word (a path's last part) names a test runner, or a runner's subcommand does (`npm test`, `node --test`, `./gradlew test`, `bundle exec rspec`); the shell's own `test` does not count. Counts come from RSpec's or PHPUnit's totals, else the output's "Tests" total line, else summed across it; a pytest error counts as a failure. A run that exits non-zero records at least one failure. |
+| **Background jobs** | Opened by a main-thread Bash result's `backgroundTaskId`, unless the result says no notification can follow (`backgroundEndsWithFinalResponse`) or that its subagent is woken instead (`backgroundWakesOwner`). Closed by `TaskStop`, or by each `<task-notification>` in a prompt that names the task. The System tab's lines move only while a turn runs. |
+| **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files under the project root with an Edit or Write that ran (not denied, not failed) after it. |
+| **Branch spend** | Each turn's cost added to the session's branch in the lifetime store, the 40 most recent kept. |
+| **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Keys that can never fire again (an earlier turn's cache countdown, an ended job) are dropped. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
 
 ## Heat guard
 
@@ -98,7 +106,7 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 ## Rendering
 
 - **Surfaces.** VS Code and the desktop app draw SVG (`Svg` element). The desktop draws it interactive, so turn bars carry hover tooltips; VS Code draws an image, so every value is also printed. The terminal has no `Svg`, though `$.ui.resolve` still returns one that renders nothing, so the pane picks its drawing by `e.surface`, never by the element's presence.
-- **Terminal.** Each tab is a list of lines of coloured segments (`term/segments.ts`), split into blocks at each title. Each block is one `Raster`: `raster.ts` packs every cell as three little-endian u32s (code point, foreground, background), with theme colours as mid tones that read on dark and light terminals and the terminal's own foreground for plain text. Any code point a Raster would refuse becomes `?`, and every line is clipped to the body width with `…`, so no input can blank a tab.
+- **Terminal.** Each tab is a list of lines of coloured segments (`term/segments.ts`), split into blocks at each title. Titles are ruled to the body width when the page is laid out. Each block is one `Raster`: `raster.ts` packs every cell as three little-endian u32s (code point, foreground, background), with theme colours as mid tones that read on dark and light terminals and the terminal's own foreground for plain text. Gradient tones (`heat`, `fade`, `cool`) colour each cell by its place along the run; a `pill` segment paints its tone as the background under dark text. Any code point a Raster would refuse becomes `?`, and every line is clipped to the body width with `…`, so no input can blank a tab.
 - **Terminal motion.** Segments may carry `spin`, `pulse` or `flow`. Blocks with motion are kept in a frame table; a 140 ms timer re-encodes them at the next phase and repaints them with `$.ui.blit`, never a full redraw. A block that is no longer mounted answers `deny` and leaves the table, and only live work emits motion, so the loop sends nothing while idle.
 - **Motion** is SMIL only, with no script: `ease()` animates from the previous value with an ease-out-quint spline. Loops (particles, pulses, breathing) are emitted only while their stage is active, and only with `motion: smooth`.
 - **Layout.** `drawContext(cfg, prev, columns)` picks a 640 px canvas at 76 columns or more, otherwise 400 px. Every page lays itself out for both widths.
@@ -107,7 +115,8 @@ Temperature comes from CPU sensors first (`x86_pkg_temp`, `TCPU`, `coretemp`, `k
 ## Testing
 
 - `tests/core.test.ts` covers every analytic and transition in `core.ts`.
+- `tests/instruments.test.ts` covers cache warmth, idle MCP servers, the model what-if, test parsing, background jobs, branch spend and the since-commit count.
 - `tests/draw.test.ts` draws the Spend, Tools and Context pages at both widths and checks that user text arrives escaped.
 - `tests/term.test.ts` checks the cell encoding byte for byte, glyph safety, meter precision, heat colours, motion frames and that every page fits the narrowest width.
-- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards and `/embermeter export` through the real hooks.
+- `tests/pane.test.tsx` mounts the real module on the `vscode`, `desktop` and `terminal` surfaces against a stub engine, decodes the terminal's Raster cells, and drives the guards, compaction counting, background jobs, test runs, `/clear` and `/embermeter export` through the real hooks.
 - `scripts/render-docs.ts` renders every page from a fixed sample session. CI runs it as a smoke test, and contributors use it to refresh the README images.

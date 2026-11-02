@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyBoard, parseConfig, startTurn, withCtx } from '../hooks/core'
 import { termHeader, termPage, termStrip } from '../hooks/term/pages'
 import { base64, blocks, DEFAULT, encode, mix, moves, safeGlyph } from '../hooks/term/raster'
-import { fit, lineText, meter, spark } from '../hooks/term/segments'
+import { chart, fit, leader, lineText, meter, ruled, title } from '../hooks/term/segments'
 
 const words = (cells: string) => {
   const bin = atob(cells)
@@ -48,13 +48,16 @@ test('rows are clipped to the width and capped at 256', async () => {
   expect(words(grid.cells).length).toBe(10 * 256 * 3)
 })
 
-test('meters keep eighth-cell precision and their width', async () => {
-  const text = (f: number | null) => meter(f, 10).map(s => s.t).join('')
-  expect(text(0.5)).toBe('█████░░░░░')
-  expect(text(0.55)).toBe('█████▌░░░░')
-  expect(text(1.4)).toBe('██████████')
-  expect(text(null)).toBe('··········')
-  for (const f of [0, 0.01, 0.33, 0.99]) expect(text(f).length).toBe(10)
+test('meters keep half-cell precision, their width and the red line', async () => {
+  const text = (f: number | null, mark?: number) => meter(f, 10, 'heat', undefined, mark).map(s => s.t).join('')
+  expect(text(0.5)).toBe('━━━━━─────')
+  expect(text(0.55)).toBe('━━━━━╸────')
+  expect(text(1.4)).toBe('━━━━━━━━━━')
+  expect(text(null)).toBe('┄┄┄┄┄┄┄┄┄┄')
+  expect(text(0.2, 0.8)).toBe('━━──────┊─')
+  // A fill past the red line hides it: the fill's own colour already says so.
+  expect(text(0.9, 0.5)).toBe('━━━━━━━━━─')
+  for (const f of [0, 0.01, 0.33, 0.99]) for (const m of [undefined, 0.1, 0.5, 0.95]) expect(text(f, m).length).toBe(10)
 })
 
 test('heat colours run from good to bad along the meter', async () => {
@@ -64,9 +67,29 @@ test('heat colours run from good to bad along the meter', async () => {
   expect(mix(0x000000, 0xffffff, 0.5)).toBe(0x808080)
 })
 
-test('sparklines scale to their peak', async () => {
-  expect(spark([0, 5, 10], 3, undefined, 'info')[0]?.t).toBe('▁▅█')
-  expect(spark([], 5)[0]?.t).toBe('–')
+test('charts stack two rows, widen short series and stand on a floor', async () => {
+  const rows = (c: ReturnType<typeof chart>) => c.map(r => r.map(s => s.t).join(''))
+  expect(rows(chart([0, 5, 10], 3, 2))).toEqual(['  █', '▁██'])
+  expect(rows(chart([1, 2], 6, 2))).toEqual(['   ██ ', '██ ██ '])
+  expect(rows(chart([50, 60], 2, 1, undefined, 'info', 40))).toEqual(['▄█'])
+  expect(rows(chart([], 5, 2))).toEqual(['', '–'])
+})
+
+test('titles are ruled to the width and list rows keep their numbers', async () => {
+  const t = ruled(title('Vitals', 'note'), 30)
+  expect(lineText(t)).toBe(`VITALS ${'─'.repeat(17)} note `)
+  expect(t.title).toBe(true)
+  expect([...lineText(ruled(title('A very long section title', 'and a long note'), 20))].length).toBeGreaterThan(20)
+  const row = leader(30, [{ t: '/a/very/long/path/that/never/ends.ts' }], [{ t: '12k' }])
+  expect([...lineText(row)].length).toBe(30)
+  expect(lineText(row).endsWith(' 12k')).toBe(true)
+  expect(lineText(leader(30, [{ t: 'x' }], [{ t: '9' }]))).toBe(`  x ${'·'.repeat(24)} 9`)
+})
+
+test('a pill paints its tone as the ground with dark text', async () => {
+  const w = words(encode([{ segs: [{ t: 'A', tone: 'good', pill: true }] }], 1, 'night').cells)
+  expect(w[1]).not.toBe(DEFAULT)
+  expect(w[2]).toBe(0x7fae5f)
 })
 
 test('pages split into blocks at titles; only a live turn moves', async () => {

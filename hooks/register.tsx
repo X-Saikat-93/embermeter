@@ -3,7 +3,9 @@ import type { Register } from 'claude-code'
 
 import type { Agent, Board, Call, CallStatus, Ctx, Lifetime, Tab, Vitals } from '../types'
 import {
+  addBranch,
   addDay,
+  addTest,
   compacted,
   countCpus,
   dayKey,
@@ -11,11 +13,19 @@ import {
   dur,
   emptyBoard,
   endAgent,
+  endJob,
   endTurn,
   estTokens,
   exportJson,
   isHeavy,
+  isTestCommand,
+  liveAlerts,
+  parseNotices,
+  parseTests,
   sessionStat,
+  startJob,
+  trackMcp,
+  turnFeed,
   statusLine,
   turnOver,
   turnsCsv,
@@ -157,7 +167,23 @@ const refreshBranch = async ($: any) => {
     if (dir) head = await readText($, `${dir.startsWith('/') ? dir : `${root}/${dir}`}/HEAD`)
   }
   const branch = parseHead(head)
-  if (branch !== (await get($)).branch) await set($, b => ({ ...b, branch }))
+  const was = await get($)
+  if (branch !== was.branch || root !== was.root) await set($, b => ({ ...b, branch, root }))
+  const commitAt = await lastMove($, root, branch)
+  if (commitAt !== (await get($)).commitAt) await set($, b => ({ ...b, commitAt }))
+}
+
+// When the branch last moved (commit, reset, pull): the mtime of its reflog, else its ref, else HEAD's reflog (a
+// worktree keeps only that one). Stat only, no git process; null when none is there.
+const lastMove = async ($: any, root: string, branch: string): Promise<number | null> => {
+  const dir = gitDirOf(await readText($, `${root}/.git`)) ?? '.git'
+  const git = dir.startsWith('/') ? dir : `${root}/${dir}`
+  const paths = [...(branch ? [`${git}/logs/refs/heads/${branch}`, `${git}/refs/heads/${branch}`] : []), `${git}/logs/HEAD`]
+  for (const p of paths) {
+    const st = await $.fs.stat(p).catch(() => null)
+    if (st?.kind === 'file' && Number.isFinite(st.mtimeMs)) return st.mtimeMs
+  }
+  return null
 }
 
 // ---------------------------------------------------------------- side effects
@@ -170,7 +196,7 @@ const raise = async ($: any) => {
   const fresh = newAlerts(b, cfg, life?.days?.[dayKey(b.now)]?.usd ?? null)
   if (!fresh.length) return
   const at = await $.clock.now()
-  await set($, x => fresh.reduce((acc, a) => log({ ...acc, alerts: [...acc.alerts, a.key] }, at, 'alert', a.text, 'warn'), x))
+  await set($, x => liveAlerts(fresh.reduce((acc, a) => log({ ...acc, alerts: [...acc.alerts, a.key] }, at, 'alert', a.text, 'warn'), x)))
   // Quiet hours hold the toasts only; the alert is still logged and shown in the pane.
   if (cfg.alerts && !isQuiet(cfg, at)) for (const a of fresh) $.ui.toast(`Embermeter · ${a.text}`)
 }
@@ -187,6 +213,8 @@ const tick = async ($: any) => {
       return ctx ? withCtx(withV, ctx) : withV
     })
     if (busy || b.comp === null) await refreshComp($)
+    // A commit made from another terminal while Claude is idle still clears "changed since commit".
+    else if (ticks % 15 === 0) await refreshBranch($)
     await raise($)
   } else if (busy) {
     const now = await $.clock.now()
@@ -213,10 +241,17 @@ const copyCard = async ($: any, surface?: any) => {
   $.ui.toast('Embermeter session card copied as SVG')
 }
 
+// Zeroes the counters within the same session: the start stays, so branch, MCP and history stats count it once.
 const resetBoard = async ($: any) => {
   const now = await $.clock.now()
-  await set($, () => emptyBoard(now))
+  await set($, b => ({ ...emptyBoard(now), startedAt: b.startedAt || now }))
   await tick($)
+}
+
+// A session's first board, and one more session in the lifetime totals.
+const freshSession = async ($: any, start: number) => {
+  await set($, () => emptyBoard(start))
+  await saveLife($, l => addDay({ ...l, sessions: l.sessions + 1 }, dayKey(start), { sessions: 1 }))
 }
 
 // The terminal has no Svg, yet resolve still hands one back that draws nothing; go by the surface.
@@ -229,6 +264,29 @@ const hold = (b: Board, tool: string, detail: string, isAgent: boolean): { why: 
   if (over) return { why: `turn-cost stop: ${over}`, ask: 'Stop calling tools, summarise what is done and ask the user how to continue.' }
   if (!isAgent && cfg.loopBreak && wouldLoop(b, tool, detail)) return { why: `loop breaker: this exact ${tool} call already ran twice in a row`, ask: 'Change the approach (different input or tool) or ask the user.' }
   return null
+}
+
+// What a finished call says beyond its timing: a background job started or stopped, or a test run's counts.
+async function track($: any, call: Call, input: any, ran: any, status: CallStatus, at: number) {
+  const r = ran?.result
+  if (call.tool === 'Bash' && status === 'ok' && typeof r?.backgroundTaskId === 'string') {
+    // Only jobs whose end comes back here as a notification: a subagent's reports to that subagent, and one that
+    // ends with its caller's answer sends none.
+    const id: string = r.backgroundTaskId
+    if (!call.agent && !r.backgroundEndsWithFinalResponse && !r.backgroundWakesOwner)
+      await set($, b => startJob(b, { id, cmd: short(input.command, 80), at, end: null, status: 'run' }))
+    return
+  }
+  if (/^(?:TaskStop|KillShell|KillBash)$/.test(call.tool) && status === 'ok') {
+    const id = input.task_id ?? input.shell_id ?? ran?.result?.task_id
+    if (typeof id === 'string') await set($, b => endJob(b, id, 'killed', at))
+    return
+  }
+  if (call.tool !== 'Bash' || status === 'denied' || typeof input.command !== 'string' || !isTestCommand(input.command)) return
+  // A run that exited non-zero failed, whatever its summary counted (a suite that did not load, a coverage floor).
+  const counts = parseTests(ran?.text)
+  const run = counts ? { ...counts, fail: counts.fail || (status === 'fail' ? 1 : 0) } : status === 'fail' ? { pass: 0, fail: 1 } : null
+  if (run) await set($, b => addTest(b, { at, cmd: short(input.command, 80), ...run }))
 }
 
 async function denyHeld($: any, tool: string, held: { why: string; ask: string }) {
@@ -254,9 +312,7 @@ export const register: Register = (on, options) => {
     const fresh = (await get($)).startedAt === 0
     if (fresh) {
       const u = await $.session.usage().catch(() => null)
-      const start = u?.startedAt ?? (await $.clock.now())
-      await set($, () => emptyBoard(start))
-      await saveLife($, l => addDay({ ...l, sessions: l.sessions + 1 }, dayKey(start), { sessions: 1 }))
+      await freshSession($, u?.startedAt ?? (await $.clock.now()))
     } else {
       await saveLife($, l => l)
     }
@@ -272,6 +328,13 @@ export const register: Register = (on, options) => {
     if (cfg.motion === 'smooth') $.clock.every(140, () => animate($, cfg))
     return next(e)
   })
+
+  // A /clear goes on under a new session id and no session.start fires for it: the board starts over here.
+  on('session.end', async ($, e, next) => {
+    const out = await next(e)
+    if (e.reason === 'clear') await freshSession($, await $.clock.now())
+    return out
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'embermeter' }, async ($, e) => {
     const arg = String(e.args ?? '').trim().toLowerCase()
@@ -309,7 +372,14 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    await note($, 'you', (e as any).text ?? '')
+    const text = (e as any).text ?? ''
+    // A background task's end comes back as a notification prompt; it closes the job it names.
+    const done = (e as any).origin?.kind === 'task-notification' || String(text).includes('<task-notification') ? parseNotices(text) : []
+    if (done.length) {
+      const at = await $.clock.now()
+      await set($, b => done.reduce((x, d) => endJob(x, d.id, d.status, at), b))
+    }
+    await note($, done.length ? 'task' : 'you', text)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -333,7 +403,12 @@ export const register: Register = (on, options) => {
       await note($, 'main', `${e.reason} · ${dur(t?.ms)} · ${t?.tools ?? 0} tools${tok}${t?.usd != null ? ` · ${money(t.usd)}` : ''}`, e.reason === 'answer' ? 'done' : 'error')
       const add = { turns: 1, calls: t?.tools ?? 0, usd: t?.usd ?? 0 }
       const after = await get($)
-      await saveLife($, l => withSession(addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add), sessionStat(after, cfg)))
+      await saveLife($, l =>
+        trackMcp(
+          addBranch(withSession(addDay({ ...l, turns: l.turns + add.turns, calls: l.calls + add.calls, usd: l.usd + add.usd }, dayKey(now), add), sessionStat(after, cfg)), after.branch, after.startedAt, add.usd, now),
+          after,
+        ),
+      )
       await refreshComp($, true)
       await raise($)
     } else {
@@ -354,8 +429,19 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.compact', async ($, e, next) => {
-    const out = await next(e)
-    await set($, compacted)
+    const before = await get($)
+    const out: any = await next(e)
+    // Only the main conversation's compactions that stood: a precompute installs nothing, a skip keeps the
+    // conversation, and a subagent's window is not the one drawn. The window's size is set to what is left, so
+    // withCtx does not count this one again from the drop; nor does this one count where withCtx already did.
+    if (e.agentId !== undefined || e.trigger === 'precompute' || out?.skip !== undefined) return out
+    const at = await $.clock.now()
+    const fed = turnFeed(before, before.lastCompact?.at ?? before.startedAt, 5)
+    await set($, b => ({
+      ...(b.compactions > before.compactions ? b : compacted(b)),
+      lastCompact: { at, trigger: String(e.trigger), before: out?.tokensBefore ?? null, after: out?.tokensAfter ?? null, fed },
+      ctx: b.ctx && { ...b.ctx, tokens: out?.tokensAfter ?? null },
+    }))
     await note($, 'context', 'compacted', 'warn')
     await refreshComp($, true)
     return out
@@ -385,6 +471,7 @@ export const register: Register = (on, options) => {
     const end = await $.clock.now()
     await set($, b => finishCall(b, call.id, status, end - at, estTokens((ran as any).text)))
     if (status === 'fail') await note($, call.tool, `failed · ${call.detail}`, 'error')
+    await track($, call, input, ran, status, end)
     return ran
   }).catch(($, e, next) => next(e)) // fail open: a dashboard fault never blocks a tool
 
@@ -459,7 +546,7 @@ export const register: Register = (on, options) => {
     // Each tab's picture, drawn only for the tab on show; the log tab is text alone.
     const pages: Partial<Record<Tab, () => any>> = {
       overview: () => picture(overview(D, b, cfg), `Overview · ${statusText(b)}`),
-      context: () => picture(contextPage(D, b), `Context · ${kfmt(b.ctx?.tokens)} of ${kfmt(b.ctx?.window)}`),
+      context: () => picture(contextPage(D, b, life), `Context · ${kfmt(b.ctx?.tokens)} of ${kfmt(b.ctx?.window)}`),
       spend: () => picture(spend(D, b, cfg, life), `Spend · ${money(b.ctx?.usd)} this session`),
       tools: () => picture(drawTools(D, b), 'Tool leaderboard'),
       files: () => picture(drawFiles(D, b), 'File heatmap'),

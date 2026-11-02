@@ -122,7 +122,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 <p align="center"><img src="docs/art/cluster.svg" alt="Sixteen instruments: runway to compact, context composition, health grade, cache analytics, cost burn, rate limits, live flow, tool leaderboard, file heatmap, subagent swimlanes, heat guard, session report, loop watch, context fed by tools, cost waterfall, thirty days" width="880"></p>
 
 <details>
-<summary><b>The sixteen instruments, in words</b></summary>
+<summary><b>All twenty-nine instruments, in words</b></summary>
 <br>
 
 | | Instrument | What it tells you |
@@ -148,6 +148,14 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 19 | **Failing in a row** | Tools whose latest calls failed back to back, with the input that failed. |
 | 20 | **Session history** | Your last 20 sessions: grade, length, turns, tool calls, cost and branch. |
 | 21 | **Turn-cost stop and loop breaker** | Opt-in guards: refuse tool calls once one turn passes a cost, or a third identical call in a row, so Claude stops and asks instead of burning tokens. |
+| 22 | **Cache warmth** | A countdown from each reply to when the prompt cache goes cold, in the strip, the header and the status line. It learns when your account caches for an hour. Optional: a toast a minute before (`cacheAlert`). |
+| 23 | **Loaded, never called** | MCP servers whose tools sit in every request but were not called, with their tokens and how many sessions in a row they have gone unused. |
+| 24 | **Same tokens, cheaper model** | The main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, against what they cost. Turns a subagent was running during are left out, one started earlier in the background included. |
+| 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. Only the main conversation's compactions that stood count. Where another plugin keeps the compaction event from Embermeter, a window that drops by half or more is read as one (`detected`). |
+| 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node, RSpec, PHPUnit), with the failing trend. A run that exits non-zero counts as failed, even when every test it reached passed. |
+| 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
+| 28 | **Background jobs** | Commands Claude ran in the background in the main conversation, until they end or are stopped, with an alert when one is still running two minutes after its turn. A subagent's own background commands report to that subagent and are not listed. |
+| 29 | **Since the last commit** | Files in the project that Claude changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Only edits that ran count, not denied or failed ones. A commit from your own terminal clears it within 15 seconds. Files changed six or more times get a tip too. |
 
 </details>
 
@@ -158,7 +166,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 
 The panel has eight tabs, and keys `1`–`8` switch between them. It opens on the **Overview**:
 
-<p align="center"><img src="docs/header.svg" alt="Header: health grade, live turn timer, git branch, model and session clock" width="640"></p>
+<p align="center"><img src="docs/header.svg" alt="Header: the ember mark, health grade, live turn timer, git branch, model and session clock" width="640"></p>
 <p align="center"><img src="docs/overview.svg" alt="Overview: arc gauges for context, cost, cache hit and temperature; rate limits; live flow; trends; turn timeline" width="640"></p>
 
 <table>
@@ -218,7 +226,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | `/embermeter card` | Copy a session card (SVG) to share; the pane has a button too |
 | `/embermeter export` | Copy the whole session as JSON: totals, turns, tools, files, agents and history |
 | `/embermeter csv` | Copy one row per turn as CSV, for a spreadsheet |
-| `/embermeter reset` | Zero this session's counters |
+| `/embermeter reset` | Zero this session's counters; it stays the same session in the lifetime stats. `/clear` starts the board over by itself, as a new session |
 | `/embermeter close` | Close the panel |
 
 **Settings.** Open `/config`, or set them under `pluginConfigs.embermeter` in `~/.claude/settings.json`:
@@ -257,6 +265,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | `longTurnMin` | `10` | Alert when one turn runs longer than this many minutes; `0` turns it off |
 | `turnBudgetUsd` | `0` | Refuse tool calls once one turn has cost this much, so Claude stops and asks; `0` turns it off |
 | `loopBreak` | `false` | Refuse a third identical tool call in a row (same tool and input) |
+| `cacheAlert` | `false` | Toast a minute before the prompt cache goes cold, when the window holds 20k tokens or more |
 | `quietHours` | empty | Hours with no toasts, such as `22-7` (local time). Alerts still go to the log |
 | `guard` | `true` | Heat guard on or off |
 | `maxTempC` | `80` | CPU temperature limit for the heat guard |
@@ -272,7 +281,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | Surface | What you get |
 |---|---|
 | **VS Code**, **desktop app** | The full animated panel, strip and status line |
-| **Terminal (CLI)** | The full panel drawn in coloured cells: heat-gradient meters, sparklines and swimlanes. While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
+| **Terminal (CLI)** | The full panel drawn in coloured cells: capital section labels on fading rules, thin gradient meters with red-line marks, two-row bar charts, grade pills and swimlanes. While work runs, a spinner turns, the ember mark glows and a highlight sweeps the live meters and section rules (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
 | **Linux** | Vitals and heat guard from `/sys` and `/proc` |
 | **macOS, Windows** | Vitals read `–` and the heat guard rests. Everything else works |
 
@@ -360,7 +369,7 @@ The built-in pattern matches whole command words, such as `npm test`, `cargo bui
 <summary><b>Do the numbers match my bill?</b></summary>
 <br>
 
-Cost and rate limits come from Claude Code's own `session.usage`. The context composition is the engine's local estimate: a close guide, not an invoice.
+Cost and rate limits come from Claude Code's own `session.usage`. The context composition is the engine's local estimate: a close guide, not an invoice. **Same tokens, cheaper model** uses list prices from October 2026 kept in the code, so it can drift when prices change.
 </details>
 
 <details>
@@ -378,10 +387,7 @@ The loop watch saw the same call three times in a row (say, `npm test` with noth
 </details>
 
 **On the bench next:**
-- **Git changes:** dirty files and lines changed, if it can be done without starting a process.
-- **Background jobs:** a watch on dev servers and watchers left running.
-- **Cache warmth:** how long the prompt cache stays warm after a turn.
-- **Vitals for macOS and Windows.**
+- **Vitals for macOS and Windows,** if they can be read without starting a process ([#3](https://github.com/X-Saikat-93/embermeter/issues/3)).
 
 Ideas are welcome in [Discussions](https://github.com/X-Saikat-93/embermeter/discussions).
 

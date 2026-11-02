@@ -1,5 +1,5 @@
 // Pure logic: no `$`, no I/O. Everything here is unit-tested in tests/core.test.ts.
-import type { Agent, AgentStatus, Board, Call, CallStatus, Composition, Ctx, DayStat, FileStat, Lifetime, Limit, LimitTrack, LogKind, ModelStat, SessionStat, Tokens, ToolStat, Turn, Vitals } from '../types'
+import type { Agent, AgentStatus, Board, BranchStat, Call, CallStatus, Composition, Ctx, DayStat, FileStat, Job, Lifetime, Limit, LimitTrack, LogKind, ModelStat, SessionStat, TestRun, Tokens, ToolStat, Turn, Vitals } from '../types'
 
 export type Theme = 'night' | 'day' | 'washi' | 'contrast'
 export type Motion = 'smooth' | 'reduced' | 'off'
@@ -28,6 +28,8 @@ export type Cfg = {
   loopBreak: boolean
   pauseOnBattery: boolean
   maxMemPct: number
+  // A toast a minute before the prompt cache goes cold; off by default.
+  cacheAlert: boolean
   // Presentation.
   statusLine: StatusPreset
   terminal: TermDraw
@@ -99,12 +101,17 @@ export const parseConfig = (o: Readonly<Record<string, unknown>> = {}): Cfg => {
     loopBreak: o.loopBreak === true,
     pauseOnBattery: o.pauseOnBattery === true,
     maxMemPct: num(o.maxMemPct, 0, 0, 100),
+    cacheAlert: o.cacheAlert === true,
     statusLine: o.statusLine === 'minimal' || o.statusLine === 'cost' || o.statusLine === 'off' ? o.statusLine : 'full',
     terminal: o.terminalDrawing === 'text' ? 'text' : 'graphics',
   }
 }
 
 // ---------------------------------------------------------------- board
+
+// How long the prompt cache outlives a reply: five minutes by default, an hour where the account caches for longer.
+export const CACHE_SHORT = 5 * 60_000
+export const CACHE_LONG = 60 * 60_000
 
 export const emptyBoard = (startedAt = 0): Board => ({
   startedAt,
@@ -138,6 +145,11 @@ export const emptyBoard = (startedAt = 0): Board => ({
   compactions: 0,
   guardBlocks: 0,
   alerts: [],
+  cacheTtl: CACHE_SHORT,
+  lastCompact: null,
+  tests: [],
+  jobs: [],
+  commitAt: null,
 })
 
 // A value stored by an older version is merged over the defaults, so a reload never meets a missing field.
@@ -165,7 +177,7 @@ export const log = (b: Board, at: number, who: string, text: string, kind: LogKi
   log: tail(b.log, { at, who: short(who, 14), text: short(text, 110), kind }, 60),
 })
 
-const FILE_KIND: Record<string, keyof Omit<FileStat, 'last' | 'out'>> = {
+const FILE_KIND: Record<string, keyof Omit<FileStat, 'last' | 'out' | 'lastEdit'>> = {
   Read: 'read',
   Edit: 'edit',
   MultiEdit: 'edit',
@@ -223,11 +235,16 @@ export const finishCall = (b: Board, id: string, status: CallStatus, ms: number,
     out: (s.out ?? 0) + out,
   }
   const f = call.file ? b.files[call.file] : undefined
+  // A change counts toward "since the last commit" once it ran: a denied or failed edit changed nothing.
+  const changed = status === 'ok' && (FILE_KIND[call.tool] === 'edit' || FILE_KIND[call.tool] === 'write')
   return {
     ...b,
     calls: b.calls.map(c => (c.id === id ? { ...c, status, ms, out } : c)),
     stats: { ...b.stats, [call.tool]: stat },
-    files: f && call.file && out > 0 ? { ...b.files, [call.file]: { ...f, out: (f.out ?? 0) + out } } : b.files,
+    files:
+      f && call.file && (out > 0 || changed)
+        ? { ...b.files, [call.file]: { ...f, ...(out > 0 ? { out: (f.out ?? 0) + out } : {}), ...(changed ? { lastEdit: call.at } : {}) } }
+        : b.files,
   }
 }
 
@@ -280,6 +297,13 @@ export const endTurn = (b: Board, at: number, ms: number | null, reason: string,
   const c = ctx ?? b.ctx
   const tokens = toTokens(usage)
   const model = usage?.model ?? b.model
+  // A reply after more than five idle minutes that rewrote under half of what the window held found the cache still
+  // warm, so this account's cache lasts an hour. Anything less certain keeps the five-minute default, and so does a
+  // window that shrank during the turn: a compaction rewrites only the shorter prompt, warm cache or not.
+  const prev = b.turns[b.turns.length - 1]
+  const idle = prev ? b.turnStart - prev.at : 0
+  const held = b.turnCtxStart !== null && c?.window ? (b.turnCtxStart / 100) * c.window : 0
+  const warm = tokens !== null && idle > CACHE_SHORT + 30_000 && idle < CACHE_LONG && held > 10_000 && tokens.cacheWrite < held / 2 && (c?.tokens ?? 0) >= held / 2
   const turn: Turn = {
     at,
     ms: ms ?? Math.max(0, at - b.turnStart),
@@ -290,6 +314,7 @@ export const endTurn = (b: Board, at: number, ms: number | null, reason: string,
     model,
     tokens,
     fed: turnFeed(b, b.turnStart),
+    ctxTokens: c?.tokens ?? null,
   }
   const key = model || 'unknown'
   const m: ModelStat = b.models[key] ?? { turns: 0, usd: 0, input: 0, output: 0 }
@@ -302,7 +327,7 @@ export const endTurn = (b: Board, at: number, ms: number | null, reason: string,
       output: m.output + (tokens?.output ?? 0),
     },
   }
-  return { ...b, running: false, now: at, ctx: c, model, tokens: addTokens(b.tokens, tokens), turns: tail(b.turns, turn, 40), models }
+  return { ...b, running: false, now: at, ctx: c, model, tokens: addTokens(b.tokens, tokens), turns: tail(b.turns, turn, 40), models, cacheTtl: warm ? CACHE_LONG : b.cacheTtl }
 }
 
 // The engine's /context breakdown, reduced to what the dashboard draws.
@@ -356,7 +381,16 @@ const trackLimits = (hist: Record<string, LimitTrack>, limits: Limit[], at: numb
   return out
 }
 
-export const withCtx = (b: Board, ctx: Ctx): Board => {
+// A window that fell to half or less from 20k tokens or more was compacted. This is what counts a compaction when
+// the session.compact hook never ran: a managed plugin seated outermost can send that event past this one.
+// ponytail: a rewind that drops half the conversation counts too; no event here tells the two apart.
+const shrank = (from: number | null | undefined, to: number | null) => from != null && to != null && from >= 20_000 && to <= from / 2
+
+export const withCtx = (b0: Board, ctx: Ctx): Board => {
+  const from = b0.ctx?.tokens
+  const b = shrank(from, ctx.tokens)
+    ? { ...compacted(b0), lastCompact: { at: b0.now, trigger: 'detected', before: from ?? null, after: ctx.tokens, fed: turnFeed(b0, b0.lastCompact?.at ?? b0.startedAt, 5) } }
+    : b0
   const last = b.ctxHist[b.ctxHist.length - 1]
   const pct = ctx.pct
   return {
@@ -641,6 +675,13 @@ export const newAlerts = (b: Board, cfg: Cfg, today: number | null = null): { ke
     const what = `${loop.tool} ${short(loop.detail, 40)}`
     add(`loop:${loop.tool}:${loop.detail}`, true, loop.failing ? `${what} failed ${loop.n} times: Claude may be stuck` : `${what} repeated ${loop.n} times in a row: Claude may be looping`)
   }
+  if (cfg.cacheAlert) {
+    const w = cacheWarmth(b)
+    if (w && w.tokens >= 20_000) add(`cache:${b.turnCount}`, w.leftMs > 0 && w.leftMs <= 60_000, `Prompt cache goes cold in ~${dur(w.leftMs)}: a prompt after that writes ~${kfmt(w.tokens)} tokens again`)
+  }
+  // A job still running two minutes after the turn that left it ended: worth a word, once.
+  const ended = b.turns[b.turns.length - 1]?.at ?? 0
+  for (const j of openJobs(b)) add(`job:${j.id}`, !b.running && j.at <= ended && b.now - ended >= 120_000, `Background job still running after the turn: ${short(j.cmd, 50)} (${dur(b.now - j.at)})`)
   return out
 }
 
@@ -780,6 +821,13 @@ export const insights = (b: Board, cfg: Cfg): { costly: Turn | null; tips: strin
     const left = budgetRunway(b, cfg)
     if (left !== null && left <= 5) tips.push(`~${left} turns of budget left at ${money(costRate(b).perTurn)} a turn`)
   }
+  const idle = mcpLoad(b).filter(r => r.calls === 0)
+  const idleTokens = idle.reduce((s, r) => s + r.tokens, 0)
+  if (idleTokens >= 5000 && b.turnCount >= 3) tips.push(`${idle.length} MCP server${idle.length === 1 ? ' holds' : 's hold'} ~${kfmt(idleTokens)} tokens in every request and went uncalled: switch off what this project does not use (/mcp)`)
+  const ch = churn(b)[0]
+  if (ch) tips.push(`${shortPath(ch.path, 40)} changed ${ch.edit + ch.write} times: settle the change, then make it in one pass`)
+  const sc = sinceCommit(b)
+  if (sc && sc.files.length >= 5 && sc.ago >= 30 * 60_000) tips.push(`${sc.files.length} files changed since the last commit ${dur(sc.ago)} ago: commit at a natural break`)
   return { costly, tips }
 }
 
@@ -798,6 +846,184 @@ export const sessionStat = (b: Board, cfg: Cfg): SessionStat => ({
   grade: health(b, cfg).grade,
   branch: b.branch,
 })
+
+// How long the prompt cache stays warm after the last reply, and the tokens a prompt after that writes again. Null
+// while a turn runs or before the first reply.
+export const cacheWarmth = (b: Board): { leftMs: number; tokens: number } | null => {
+  const last = b.turns[b.turns.length - 1]
+  if (b.running || !last) return null
+  return { leftMs: Math.max(0, last.at + b.cacheTtl - b.now), tokens: b.ctx?.tokens ?? 0 }
+}
+
+export const cacheText = (b: Board): string => {
+  const w = cacheWarmth(b)
+  if (!w) return ''
+  return w.leftMs >= 1000 ? `cache ${dur(w.leftMs)}` : 'cache cold'
+}
+
+// An MCP tool's name is mcp__<server>__<tool>; the server part, as tool calls spell it.
+const mcpPrefix = (name: string, server: string) =>
+  name.startsWith('mcp__') ? `${name.split('__').slice(0, 2).join('__')}__` : `mcp__${server.replace(/[^A-Za-z0-9_-]/g, '_')}__`
+
+// MCP servers whose tools sit in the window: the tokens they hold in every request, and the calls made to them.
+export const mcpLoad = (b: Board): { server: string; tokens: number; calls: number }[] => {
+  const by: Record<string, { tokens: number; prefix: string }> = {}
+  for (const t of b.comp?.mcp ?? []) {
+    if (!t.loaded) continue
+    const s = (by[t.server] ??= { tokens: 0, prefix: mcpPrefix(t.name, t.server) })
+    s.tokens += t.tokens
+  }
+  return Object.entries(by)
+    .map(([server, s]) => ({
+      server,
+      tokens: s.tokens,
+      calls: Object.entries(b.stats)
+        .filter(([tool]) => tool.startsWith(s.prefix))
+        .reduce((n, [, x]) => n + x.n, 0),
+    }))
+    .sort((x, y) => y.tokens - x.tokens)
+}
+
+// Each loaded server's run of sessions without a call, counted once per session; a call ends the run.
+export const trackMcp = (l: Lifetime, b: Board): Lifetime => {
+  const rows = mcpLoad(b)
+  if (!rows.length) return l
+  const all = { ...(l.mcp ?? {}) }
+  for (const r of rows) {
+    const s = all[r.server] ?? { idle: 0, session: 0, tokens: 0 }
+    const idle = r.calls > 0 ? 0 : s.session === b.startedAt ? s.idle : s.idle + 1
+    all[r.server] = { idle, session: b.startedAt, tokens: r.tokens }
+  }
+  return { ...l, mcp: Object.fromEntries(Object.entries(all).sort((x, y) => y[1].session - x[1].session).slice(0, 40)) }
+}
+
+// Loaded servers not called this session, with the sessions in a row they have gone unused.
+export const idleMcp = (b: Board, life: Lifetime | null): { server: string; tokens: number; sessions: number }[] =>
+  mcpLoad(b)
+    .filter(r => r.calls === 0)
+    .map(r => ({ server: r.server, tokens: r.tokens, sessions: Math.max(1, life?.mcp?.[r.server]?.idle ?? 1) }))
+
+// ponytail: list prices per million tokens (input, output, cache read, cache write) as published in October 2026.
+// They drift: update them here, or read the engine's prices once it exposes them. Haiku 5.5's cache rates are taken
+// at the usual 0.1x and 1.25x of input, and it charges 5x for a prompt over 100k tokens.
+const ALTERNATIVES: { model: string; skip: RegExp; rates: [number, number, number, number]; over?: [number, number] }[] = [
+  { model: 'Sonnet 5.5', skip: /sonnet|haiku/i, rates: [2, 10, 0.2, 2.5] },
+  { model: 'Haiku 5.5', skip: /haiku/i, rates: [0.1, 0.5, 0.01, 0.125], over: [100_000, 5] },
+]
+
+// The main thread's turns repriced at a cheaper model's list price, against what they cost. Turns a subagent ran
+// during (one started earlier in the background included) are left out: their cost includes tokens this board never
+// sees. Only models cheaper than that are listed.
+export const whatIf = (b: Board): { model: string; usd: number; actual: number; turns: number }[] => {
+  const turns = b.turns.filter(t => t.tokens && t.usd !== null && !b.agents.some(a => a.startedAt <= t.at && (a.endedAt ?? b.now) >= t.at - t.ms))
+  const actual = turns.reduce((s, t) => s + (t.usd ?? 0), 0)
+  if (!turns.length || actual <= 0) return []
+  return ALTERNATIVES.filter(a => !a.skip.test(b.model))
+    .map(a => ({
+      model: a.model,
+      usd: turns.reduce((s, t) => {
+        const k = t.tokens as Tokens
+        const x = a.over && (t.ctxTokens ?? 0) > a.over[0] ? a.over[1] : 1
+        return s + ((k.input * a.rates[0] + k.output * a.rates[1] + k.cacheRead * a.rates[2] + k.cacheWrite * a.rates[3]) * x) / 1_000_000
+      }, 0),
+      actual,
+      turns: turns.length,
+    }))
+    .filter(r => r.usd < actual)
+}
+
+// Files changed again and again this session, most first: a sign of trial and error.
+export const churn = (b: Board, min = 6): FileRow[] => fileBoard(b).filter(f => f.edit + f.write >= min)
+
+// Files in the project changed this session since the branch last moved (a commit, reset or pull), newest first.
+export const sinceCommit = (b: Board): { files: string[]; ago: number } | null => {
+  const at = b.commitAt
+  if (at === null) return null
+  const root = b.root ? `${b.root.replace(/\/+$/, '')}/` : ''
+  const files = Object.entries(b.files)
+    .filter(([path, f]) => (f.lastEdit ?? 0) > at && path.startsWith(root))
+    .sort((x, y) => (y[1].lastEdit ?? 0) - (x[1].lastEdit ?? 0))
+    .map(([path]) => path)
+  return { files, ago: Math.max(0, b.now - at) }
+}
+
+const TEST_WORD = /(?<![\w./-])(?:--)?(?:test|tests|vitest|jest|pytest|mocha|rspec|phpunit|playwright|e2e|unittest|nextest)(?![\w./-])/
+const TEST_RUNNERS = /^(?:bundle|just|rake)$/
+
+// A command line that runs tests, judged as the heat guard judges heavy jobs: by the command word (a path's last
+// part, so `vendor/bin/phpunit` counts), plus the subcommand for runners (`npm test`, `node --test`, `./gradlew
+// test`), so `grep test src` or `cat tests/a.ts` do not count, nor the shell's own `test -f`.
+export const isTestCommand = (command: string) =>
+  commandHeads(command).some(h => {
+    const word = (h.split(' ')[0] ?? '').split('/').pop() ?? ''
+    if (RUNNERS.test(word) || TEST_RUNNERS.test(word)) return TEST_WORD.test(h.slice(h.indexOf(' ') + 1))
+    return word !== 'test' && TEST_WORD.test(word)
+  })
+
+const sum = (s: string, re: RegExp) => [...s.matchAll(re)].reduce((n, m) => n + Number(m[1]), 0)
+
+// Passed and failed counts from a test runner's output (Jest, Vitest, pytest, Mocha, cargo, go test -v, node --test,
+// RSpec, PHPUnit); null when it reports none. Jest and Vitest print lines per file and then a "Tests" total: the total
+// wins. A pytest error counts as a failure, as pytest itself counts it.
+export const parseTests = (text: unknown): { pass: number; fail: number } | null => {
+  if (typeof text !== 'string' || !text) return null
+  const t = text.slice(-20_000)
+  const rspec = /(\d+) examples?, (\d+) failures?/.exec(t)
+  if (rspec) return { pass: Number(rspec[1]) - Number(rspec[2]), fail: Number(rspec[2]) }
+  const unit = /^Tests: (\d+), Assertions: \d+(.*)$/m.exec(t)
+  if (unit) {
+    const fail = sum(unit[2] ?? '', /(?:Errors|Failures): (\d+)/g)
+    return { pass: Number(unit[1]) - fail, fail }
+  }
+  const ok = /^OK \((\d+) tests?,/m.exec(t)
+  if (ok) return { pass: Number(ok[1]), fail: 0 }
+  const src = t.split('\n').filter(l => /^\s*Tests\b/.test(l) && /\d+\s+(?:passed|failed)/.test(l)).pop() ?? t
+  const pass = sum(src, /(\d+)\s+(?:passed|passing)\b/gi) + sum(src, /^\W*pass\s+(\d+)\s*$/gim) + (src.match(/^\s*--- PASS:/gm)?.length ?? 0)
+  const fail = sum(src, /(\d+)\s+(?:failed|failing|errors?)\b/gi) + sum(src, /^\W*fail\s+(\d+)\s*$/gim) + (src.match(/^\s*--- FAIL:/gm)?.length ?? 0)
+  return pass + fail > 0 ? { pass, fail } : null
+}
+
+export const addTest = (b: Board, run: TestRun): Board => ({ ...b, tests: tail(b.tests, run, 20) })
+
+export const startJob = (b: Board, job: Job): Board => ({ ...b, jobs: tail(b.jobs.filter(j => j.id !== job.id), job, 20) })
+
+export const endJob = (b: Board, id: string, status: string, at: number): Board =>
+  b.jobs.some(j => j.id === id && j.end === null) ? { ...b, jobs: b.jobs.map(j => (j.id === id && j.end === null ? { ...j, end: at, status } : j)) } : b
+
+export const openJobs = (b: Board) => b.jobs.filter(j => j.end === null)
+
+// ponytail: a background task's end arrives as a notification prompt carrying <task-id> and <status> tags, several
+// to a prompt when tasks end together; this reads each. A job whose notification never comes stays listed as running
+// until /embermeter reset.
+export const parseNotices = (text: unknown): { id: string; status: string }[] => {
+  if (typeof text !== 'string') return []
+  const blocks = text.includes('<task-notification') ? text.split(/<task-notification\b/).slice(1) : [text]
+  return blocks.flatMap(t => {
+    const id = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(t)?.[1]
+    return id ? [{ id, status: /<status>\s*([^<\s]+)\s*<\/status>/.exec(t)?.[1] ?? 'ended' }] : []
+  })
+}
+
+// Alert keys that can never fire again (an earlier turn's cache countdown, a job that ended) are dropped, so the list
+// stays as long as the alerts that can still matter.
+export const liveAlerts = (b: Board): Board => {
+  const open = new Set(openJobs(b).map(j => `job:${j.id}`))
+  return { ...b, alerts: b.alerts.filter(k => (k.startsWith('cache:') ? k === `cache:${b.turnCount}` : k.startsWith('job:') ? open.has(k) : true)) }
+}
+
+// Spend on the session's branch, added turn by turn; the 40 most recently used branches kept.
+export const addBranch = (l: Lifetime, branch: string, session: number, usd: number, at: number): Lifetime => {
+  if (!branch) return l
+  const all = { ...(l.branches ?? {}) }
+  const s = all[branch] ?? { usd: 0, turns: 0, sessions: 0, last: 0, session: 0 }
+  all[branch] = { usd: s.usd + usd, turns: s.turns + 1, sessions: s.sessions + (s.session === session ? 0 : 1), last: at, session }
+  return { ...l, branches: Object.fromEntries(Object.entries(all).sort((x, y) => y[1].last - x[1].last).slice(0, 40)) }
+}
+
+export const branchBoard = (l: Lifetime | null): (BranchStat & { branch: string })[] =>
+  Object.entries(l?.branches ?? {})
+    .map(([branch, s]) => ({ branch, ...s }))
+    .sort((x, y) => y.usd - x.usd)
 
 // ---------------------------------------------------------------- formatting
 
@@ -849,12 +1075,21 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
   const models = modelSplit(b)
   const weight = ctxWeight(b).slice(0, 5)
   const loop = loopWatch(b)
+  const warmth = cacheWarmth(b)
   const left = budgetRunway(b, cfg)
   const month = life ? lastDays(life, b.now, 30) : []
   const monthUsd = month.reduce((s, d) => s + d.usd, 0)
   const week = life ? weekCompare(life, b.now) : null
   const etas = limitEta(b).filter(e => e.etaMs !== null)
   const heavy = fileWeight(b).slice(0, 5)
+  const alt = whatIf(b)
+  const idle = idleMcp(b, life)
+  const lc = b.lastCompact
+  const tr = b.tests[b.tests.length - 1]
+  const jobs = openJobs(b)
+  const sc = sinceCommit(b)
+  const branches = branchBoard(life).slice(0, 5)
+  const ch = churn(b).slice(0, 3)
   const lines = [
     `# Embermeter session report`,
     ``,
@@ -867,6 +1102,14 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
     heavy.length ? `- Heaviest files (est.): ${heavy.map(f => `${shortPath(f.path, 40)} ${kfmt(f.out)}`).join(' · ')}` : '',
     etas.length ? `- Rate limits at this pace: ${etas.map(e => `${e.kind.replace(/_/g, ' ')} full in ~${dur(e.etaMs)}`).join(' · ')}` : '',
     loop ? `- **Loop warning:** ${loop.tool} \`${short(loop.detail, 50)}\` ${loop.failing ? 'failed' : 'repeated'} ${loop.n} times` : '',
+    warmth ? `- Prompt cache: ${warmth.leftMs >= 1000 ? `warm, ${dur(warmth.leftMs)} left` : 'cold'} · lasts ${b.cacheTtl === CACHE_LONG ? '1h' : '5m'} after a reply` : '',
+    alt.length ? `- Same main-thread tokens at list price: ${alt.map(a => `${a.model} ${money(a.usd)}`).join(' · ')} (paid ${money(alt[0]?.actual)} over ${alt[0]?.turns} turns)` : '',
+    idle.length ? `- Loaded MCP servers not called: ${idle.map(r => `${r.server} ${kfmt(r.tokens)}${r.sessions > 1 ? ` (${r.sessions} sessions)` : ''}`).join(' · ')}` : '',
+    lc ? `- Last compaction: ${dur(b.now - lc.at)} ago (${lc.trigger})${lc.before !== null && lc.after !== null ? ` · ${kfmt(lc.before)} → ${kfmt(lc.after)} tokens` : ''}${lc.fed.length ? ` · was feeding: ${lc.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ')}` : ''}` : '',
+    tr ? `- Tests: last run ${tr.pass} passed, ${tr.fail} failed (\`${short(tr.cmd, 40)}\`)${b.tests.length > 1 ? ` · failing ${b.tests.slice(-5).map(t => t.fail).join(' → ')}` : ''}` : '',
+    jobs.length ? `- Background jobs running: ${jobs.map(j => `\`${short(j.cmd, 40)}\``).join(' · ')}` : '',
+    sc && sc.files.length ? `- Since the last commit (${dur(sc.ago)} ago): ${sc.files.length} files changed` : '',
+    ch.length ? `- Changed again and again: ${ch.map(f => `${shortPath(f.path, 40)} ×${f.edit + f.write}`).join(' · ')}` : '',
     `- Tokens: ${kfmt(b.tokens.input)} in · ${kfmt(b.tokens.output)} out · ${kfmt(b.tokens.cacheRead)} cache read · ${kfmt(b.tokens.cacheWrite)} cache write${cacheHit(b.tokens) !== null ? ` · ${Math.round((cacheHit(b.tokens) ?? 0) * 100)}% cache hit` : ''}${throughput(b) !== null ? ` · ${Math.round(throughput(b) ?? 0)} tok/s` : ''}${b.model ? ` · ${b.model}` : ''}`,
     b.comp ? `- Context mix: ${b.comp.slices.slice().sort((x, y) => y.tokens - x.tokens).slice(0, 5).map(s => `${s.name} ${kfmt(s.tokens)}`).join(' · ')}` : '',
     `- Gate: ${b.gate.allow} allowed · ${b.gate.ask} asked · ${b.gate.deny} denied · ${b.guardBlocks} heat-guard blocks`,
@@ -875,6 +1118,7 @@ export const report = (b: Board, cfg: Cfg, life: Lifetime | null): string => {
     rereads(b).rows.length ? `- Read again: ${rereads(b).rows.length} files · ~${kfmt(rereads(b).waste)} tokens repeated` : '',
     streaks(b).length ? `- Failing in a row: ${streaks(b).map(x => `${x.tool} ×${x.n}`).join(' · ')}` : '',
     ...insights(b, cfg).tips.map(t => `- Tip: ${t}`),
+    branches.length ? `- By branch (all time): ${branches.map(x => `${x.branch} ${money(x.usd)}`).join(' · ')}` : '',
     life ? `- All time: ${life.sessions} sessions · ${money(life.usd)} · ${life.turns} turns · ${life.calls} tool calls · last 30 days ${money(monthUsd)}${week && week.change !== null ? ` · last 7 days ${money(week.week)} (${week.change >= 0 ? '+' : ''}${Math.round(week.change * 100)}% on the week before)` : ''}` : '',
     ``,
     rows.length ? `| Tool | Calls | OK | Avg | p95 |\n|---|---:|---:|---:|---:|\n${rows.map(t => `| ${t.tool} | ${t.n} | ${t.okPct}% | ${dur(t.avg)} | ${dur(t.p95)} |`).join('\n')}` : '',
@@ -898,7 +1142,7 @@ export const statusLine = (b: Board, cfg: Cfg): string | undefined => {
     cfg.statusLine === 'minimal'
       ? [grade, state, ctx]
       : cfg.statusLine === 'cost'
-        ? [money(c?.usd), costRate(b).perHour !== null ? `${money(costRate(b).perHour)}/h` : '', cfg.budgetUsd > 0 ? `of ${money(cfg.budgetUsd)}` : '', turnOver(b, cfg) ? 'turn stop' : '']
+        ? [money(c?.usd), costRate(b).perHour !== null ? `${money(costRate(b).perHour)}/h` : '', cfg.budgetUsd > 0 ? `of ${money(cfg.budgetUsd)}` : '', turnOver(b, cfg) ? 'turn stop' : '', cacheText(b)]
         : [
             grade,
             state,
@@ -907,6 +1151,8 @@ export const statusLine = (b: Board, cfg: Cfg): string | undefined => {
             v?.tempC != null ? `${Math.round(v.tempC)}°` : '',
             v?.pct != null ? `bat ${v.pct}%${v.discharging ? '↓' : ''}` : '',
             b.agents.some(a => a.status === 'run') ? `${b.agents.filter(a => a.status === 'run').length} agents` : '',
+            openJobs(b).length ? `${openJobs(b).length} bg` : '',
+            cacheText(b),
           ]
   return parts.filter(p => p && p !== '?').join(' · ') || undefined
 }
@@ -931,6 +1177,11 @@ export const exportJson = (b: Board, cfg: Cfg, life: Lifetime | null): string =>
       gate: b.gate,
       guardBlocks: b.guardBlocks,
       compactions: b.compactions,
+      lastCompact: b.lastCompact,
+      tests: b.tests,
+      jobs: b.jobs,
+      whatIf: whatIf(b),
+      branches: branchBoard(life),
       history: life?.recent ?? [],
     },
     null,

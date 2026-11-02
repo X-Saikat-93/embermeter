@@ -30,6 +30,12 @@ import {
   insights,
   rereads,
   streaks,
+  branchBoard,
+  cacheText,
+  idleMcp,
+  openJobs,
+  sinceCommit,
+  whatIf,
 } from './core'
 
 // ---------------------------------------------------------------- design tokens
@@ -358,22 +364,33 @@ export const header = (D: Draw, b: Board, cfg: Cfg) => {
   const h = health(b, cfg)
   const gc = h.grade === 'A' ? p.sage : h.grade === 'B' ? p.steel : h.grade === 'C' ? p.amber : p.rust
   const busy = b.running || b.agents.some(a => a.status === 'run')
-  const state = b.running ? `Running ${dur(b.now - b.turnStart)}` : busy ? 'Agents working' : 'Idle'
   const wide = D.W >= 600
+  const cache = cacheText(b)
+  const sc = sinceCommit(b)
+  const state = b.running ? `Running ${dur(b.now - b.turnStart)}` : busy ? 'Agents working' : `Idle${cache && !wide ? ` · ${cache}` : ''}`
   const H = wide ? 64 : 92
   const why = h.reasons.length ? h.reasons.slice(0, 3).join(' · ') : 'all clear'
+  // The mark is the ember (the session card's sun), rippling while work runs; the grade is named beside it.
   let body =
-    `<rect x="12" y="12" width="40" height="40" rx="9" fill="none" stroke="${gc}" stroke-width="1.5"/>` +
-    txt(D, 32, 39, h.grade, { size: 22, weight: 700, mono: true, anchor: 'middle', color: gc }) +
-    txt(D, 64, 29, 'Embermeter', { size: 15, weight: 700, color: p.ink }) +
-    txt(D, 64, 46, `${h.score}/100 · ${why}`, { size: 10, color: p.sub })
+    `<circle cx="32" cy="32" r="15" fill="none" stroke="${p.ink}" stroke-opacity="0.18"/>` +
+    dot(D, 32, 32, p.amber, busy, 9) +
+    txt(D, 60, 29, 'Embermeter', { size: 15, weight: 700, color: p.ink }) +
+    `<text x="60" y="46" font-size="10" fill="${p.sub}" font-family="${SANS}"><tspan fill="${gc}" font-weight="700">Grade ${h.grade}</tspan>${esc(` · ${h.score}/100 · ${why}`)}</text>`
   const sx = wide ? D.W - 236 : 64
   const sy = wide ? 29 : 72
   body +=
     dot(D, sx, sy - 4, busy ? p.amber : p.faint, busy) +
     txt(D, sx + 12, sy, state, { size: 11, weight: 600, color: busy ? p.amber : p.sub, mono: b.running }) +
     txt(D, D.W - 14, sy, `turn ${b.turnCount} · ${dur(b.now - b.startedAt)}`, { size: 10, anchor: 'end', mono: true }) +
-    (wide ? txt(D, D.W - 14, 46, [b.branch ? `on ${short(b.branch, 20)}` : '', b.model ? short(b.model, 28) : 'model –'].filter(Boolean).join(' · '), { size: 9.5, anchor: 'end', color: p.faint, mono: true }) : '')
+    (wide
+      ? txt(
+          D,
+          D.W - 14,
+          46,
+          [b.branch ? `on ${short(b.branch, 20)}` : '', sc?.files.length ? `${sc.files.length} since commit` : '', !busy ? cache : '', b.model ? short(b.model, sc?.files.length || cache ? 18 : 28) : 'model –'].filter(Boolean).join(' · '),
+          { size: 9.5, anchor: 'end', color: p.faint, mono: true },
+        )
+      : '')
   return svg(D, H, body)
 }
 
@@ -509,7 +526,7 @@ export const overview = (D: Draw, b: Board, cfg: Cfg) => {
   return svg(D, y, parts.join(''))
 }
 
-export const contextPage = (D: Draw, b: Board) => {
+export const contextPage = (D: Draw, b: Board, life: Lifetime | null = null) => {
   const p = D.p
   const cp = b.comp
   const parts: string[] = []
@@ -654,6 +671,22 @@ export const contextPage = (D: Draw, b: Board) => {
   } else {
     y -= gap
   }
+  const idle = idleMcp(b, life)
+  if (idle.length) {
+    const n = notes(D, y + gap, 'Loaded, never called', 'MCP server · tokens every request', idle.slice(0, 5).map(r => ({ t: `${r.server}${r.sessions > 1 ? ` · ${r.sessions} sessions` : ' · this session'}`, right: kfmt(r.tokens), color: p.amber })))
+    parts.push(n.body)
+    y += gap + n.h
+  }
+  const lc = b.lastCompact
+  if (lc) {
+    const rows = [
+      ...(lc.before !== null && lc.after !== null ? [{ t: 'window', right: `${kfmt(lc.before)} → ${kfmt(lc.after)}`, color: p.ink }] : []),
+      { t: `was feeding: ${lc.fed.length ? lc.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ') : 'no tool output recorded'}`, color: p.sub },
+    ]
+    const n = notes(D, y + gap, 'Last compaction', `${dur(b.now - lc.at)} ago · ${lc.trigger}`, rows)
+    parts.push(n.body)
+    y += gap + n.h
+  }
   return svg(D, y, parts.join(''))
 }
 
@@ -688,11 +721,21 @@ export const tools = (D: Draw, b: Board) => {
     }
     parts.push(txt(D, D.W - 14, y + 10, dur(r.p95), { size: 10, mono: true, anchor: 'end', color: r.p95 > 30000 ? p.amber : p.sub }))
   })
+  let y = h
   const st = streaks(b)
-  if (!st.length) return svg(D, h, parts.join(''))
-  const n = notes(D, h + 10, 'Failing in a row', '', st.slice(0, 4).map(s => ({ t: `${s.tool} · ${s.detail}`, right: `${s.n}×`, color: p.rust })))
-  parts.push(n.body)
-  return svg(D, h + 10 + n.h, parts.join(''))
+  if (st.length) {
+    const n = notes(D, y + 10, 'Failing in a row', '', st.slice(0, 4).map(s => ({ t: `${s.tool} · ${s.detail}`, right: `${s.n}×`, color: p.rust })))
+    parts.push(n.body)
+    y += 10 + n.h
+  }
+  const runs = b.tests.slice(-5).reverse()
+  if (runs.length) {
+    const trend = b.tests.length > 1 ? `failing ${b.tests.slice(-6).map(t => t.fail).join(' → ')}` : ''
+    const n = notes(D, y + 10, 'Test runs', trend, runs.map(t => ({ t: `${dur(b.now - t.at)} ago · ${t.cmd}`, right: `${t.pass} pass · ${t.fail} fail`, color: t.fail ? p.rust : p.sage })))
+    parts.push(n.body)
+    y += 10 + n.h
+  }
+  return svg(D, y, parts.join(''))
 }
 
 export const files = (D: Draw, b: Board) => {
@@ -867,6 +910,19 @@ export const spend = (D: Draw, b: Board, cfg: Cfg, life: Lifetime | null) => {
   } else {
     y -= gap
   }
+  const alt = whatIf(b)
+  if (alt.length) {
+    const rows = [{ t: 'as run', right: money(alt[0]?.actual), color: p.ink }, ...alt.map(a => ({ t: `${a.model} · ${Math.round((1 - a.usd / a.actual) * 100)}% less`, right: money(a.usd), color: p.sage }))]
+    const n = notes(D, y + gap, 'Same tokens, cheaper model', `list price · ${alt[0]?.turns} main-thread turns`, rows)
+    parts.push(n.body)
+    y += gap + n.h
+  }
+  const branches = branchBoard(life).slice(0, 6)
+  if (branches.length) {
+    const n = notes(D, y + gap, 'By branch', 'all time · sessions · turns · cost', branches.map(x => ({ t: `${x.branch === b.branch ? '▸ ' : ''}${x.branch} · ${x.sessions} sessions · ${x.turns} turns`, right: money(x.usd), color: x.branch === b.branch ? p.amber : p.ink })))
+    parts.push(n.body)
+    y += gap + n.h
+  }
   const priciest = b.turns.filter(t => t.usd !== null && t.usd > 0).slice(-12).sort((x, z) => (z.usd ?? 0) - (x.usd ?? 0)).slice(0, 3)
   if (priciest.length) {
     const n = notes(D, y + gap, 'Priciest turns', 'what fed them', priciest.map(t => ({ t: `${money(t.usd)} · ${dur(t.ms)} · ${t.tools} tools · ${t.fed?.length ? t.fed.map(f => `${f.name} ${kfmt(f.out)}`).join(' · ') : '–'}`, color: p.ink })))
@@ -946,6 +1002,12 @@ export const system = (D: Draw, b: Board, cfg: Cfg) => {
   parts.push(label(D, gx, gy, 'Held by heat guard'))
   parts.push(txt(D, gx, gy + 20, `${b.guardBlocks} heavy job${b.guardBlocks === 1 ? '' : 's'}`, { size: 14, weight: 600, mono: true, color: b.guardBlocks ? p.rust : p.sage }))
   y += gh
+  const jobs = b.jobs.slice(-6).reverse()
+  if (jobs.length) {
+    const n = notes(D, y + gap, 'Background jobs', `${openJobs(b).length} running`, jobs.map(j => ({ t: `${j.end === null ? '▸ ' : ''}${j.cmd}`, right: j.end === null ? dur(b.now - j.at) : j.status, color: j.end === null ? p.amber : p.sub })))
+    parts.push(n.body)
+    y += gap + n.h
+  }
   return svg(D, y, parts.join(''))
 }
 
@@ -962,14 +1024,14 @@ export const strip = (D: Draw, b: Board, cfg: Cfg) => {
   const mini = (x: number, name: string, value: string, f: number | null, pf: number | null | undefined, col: string, mark?: number) =>
     label(D, x, 13, name) + txt(D, x + 90, 13, value, { size: 9.5, mono: true, anchor: 'end', color: p.ink }) + meter(D, x, 18, 90, f, pf, col, 3, mark)
   const body =
-    `<rect x="6.5" y="4.5" width="20" height="20" rx="5" fill="none" stroke="${gc}"/>` +
-    txt(D, 16.5, 19, h.grade, { size: 12, weight: 700, mono: true, anchor: 'middle', color: gc }) +
+    `<rect x="6.5" y="4.5" width="20" height="20" rx="5" fill="${gc}"/>` +
+    txt(D, 16.5, 19, h.grade, { size: 12, weight: 700, mono: true, anchor: 'middle', color: p.ground }) +
     dot(D, 40, 14.5, busy ? p.amber : p.faint, busy, 3) +
     txt(D, 50, 18, b.running ? dur(b.now - b.turnStart) : busy ? 'agents' : 'idle', { size: 10, weight: 600, mono: b.running, color: busy ? p.amber : p.sub }) +
     mini(108, 'ctx', c?.pct != null ? `${Math.round(c.pct)}%` : '–', c?.pct != null ? c.pct / 100 : null, D.prev?.ctx?.pct != null ? D.prev.ctx.pct / 100 : null, level(D, (c?.pct ?? 0) / ceiling), ceiling < 100 ? ceiling / 100 : undefined) +
     mini(212, 'temp', v?.tempC != null ? `${Math.round(v.tempC)}°` : '–', v?.tempC != null ? v.tempC / (cfg.maxTempC + 15) : null, null, v?.tempC != null ? level(D, v.tempC / cfg.maxTempC - 0.15) : p.faint, cfg.maxTempC / (cfg.maxTempC + 15)) +
     mini(316, v?.discharging ? 'bat ↓' : 'bat', v?.pct != null ? `${v.pct}%` : '–', v?.pct != null ? v.pct / 100 : null, null, v?.pct != null ? level(D, 1 - v.pct / 100) : p.faint) +
-    txt(D, W - 10, 18, `${money(c?.usd)} · ${b.agents.filter(a => a.status === 'run').length} agents · ${b.calls.filter(x => x.status === 'run').length} tools`, { size: 10, mono: true, anchor: 'end' })
+    txt(D, W - 10, 18, [money(c?.usd), `${b.agents.filter(a => a.status === 'run').length} agents`, busy ? `${b.calls.filter(x => x.status === 'run').length} tools` : cacheText(b)].filter(Boolean).join(' · '), { size: 10, mono: true, anchor: 'end' })
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} 29" width="${W}" height="29"><rect width="${W}" height="29" rx="8" fill="${p.ground}"/>${body}</svg>`
 }
 

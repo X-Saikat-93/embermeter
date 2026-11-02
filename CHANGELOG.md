@@ -5,6 +5,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **Cache warmth:** a countdown from each reply to when the prompt cache goes cold, in the strip, header, status line and report. It learns an hour-long cache from a warm reply after a long gap. `cacheAlert` toasts a minute before.
+- **Loaded, never called:** MCP servers whose tools sit in every request without a call, with their tokens and their run of unused sessions, plus a tip.
+- **Same tokens, cheaper model:** the main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, on the Spend tab and in the report.
+- **Last compaction:** tokens before and after, and what had been feeding the window, on the Context tab and in the report.
+- **Test runs:** passed and failed counts parsed from test commands, with the failing trend, on the Tools tab.
+- **By branch:** spend, sessions and turns per git branch across sessions, on the Spend tab and in the report.
+- **Background jobs:** background Bash commands until they end or are stopped, on the System tab, with an alert when one outlives its turn by two minutes.
+- **Since the last commit:** files changed since the branch last moved, read from git's files with `fs.stat`, in the header, with tips for long-uncommitted work and files changed six or more times.
+
+### Changed
+- **The terminal pane is redrawn.** Section labels in capitals on a rule that fades from the accent; thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, temperature limit, battery floor and memory limit; two-row bar charts for trends, cost per turn, the 30 days and the thermal trend; pills for the grade, test results and failing streaks; dotted leaders for file and server lists; dotted swimlane tracks. While work runs, the rules of the live sections shimmer along with the meters, and nothing moves when idle.
+- **The ember is the mark.** The header leads with the ember (`◉` in the terminal, the sun in SVG), which glows while work runs; the grade sits beside the name as a labelled badge instead of where a logo goes.
+
+### Fixed
+- Compactions are counted once, and only the main conversation's that stood: a `precompute`, a skipped compaction or a subagent's no longer bumps the count or re-arms the context alerts.
+- Compactions still count, and the context alerts still re-arm, when another plugin (a managed one seated outermost) sends `session.compact` past Embermeter: a window that falls to half or less from 20k tokens or more is read as one, shown as `detected`.
+- Background jobs: a subagent's background commands, and ones that end with their caller's answer, are no longer listed as running forever, and a prompt carrying several task notifications closes each job it names. The System tab no longer animates while idle because a dev server runs.
+- Test runs: a run that exits non-zero shows as failed (a suite that did not load, a pytest error, a coverage floor). `node --test`, `./gradlew test`, `vendor/bin/phpunit`, `bundle exec rspec`, `python -m unittest`, `just test` and `cargo nextest` are recognised, RSpec and PHPUnit totals are read, and the shell's `test -f` no longer counts.
+- Since the last commit: only edits that ran count (not denied or failed ones), only files inside the project, and a commit made while Claude is idle clears the count within 15 seconds.
+- The cache countdown no longer switches to an hour for good after a turn that compacted mid-way.
+- Same tokens, cheaper model: turns a background subagent was still spending during are left out, so the saving is not overstated.
+- `/embermeter reset` no longer counts as a new session in the branch, MCP and history stats, and `/clear` starts the board over instead of carrying the old conversation's jobs, tests and cache countdown.
+- The report reads "Prompt cache: warm, 4m00s left" or "cold" instead of "cache cache cold left".
+- Alert keys for an earlier turn's cache countdown or an ended job are dropped instead of piling up.
+
 ## [1.3.0] - 2026-11-01
 
 ### Added

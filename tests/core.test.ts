@@ -332,6 +332,17 @@ test('the compaction warning fires two turns out and re-arms after a compaction'
   expect(compacted(raised).alerts).toEqual([])
 })
 
+test('a window that falls by half from 20k tokens or more counts as a compaction and re-arms the alerts', async () => {
+  const b = { ...withCtx(emptyBoard(0), ctx(60)), alerts: ['ctx70', 'cost'] }
+  const after = withCtx(b, ctx(15))
+  expect(after.compactions).toBe(1)
+  expect(after.alerts).toEqual(['cost'])
+  expect(after.lastCompact).toMatchObject({ trigger: 'detected', before: 120000, after: 30000 })
+  // A smaller drop, or a small window, is ordinary churn.
+  expect(withCtx(b, ctx(40)).compactions).toBe(0)
+  expect(withCtx(withCtx(emptyBoard(0), ctx(8)), ctx(1)).compactions).toBe(0)
+})
+
 test('the daily budget, long turns and quiet hours', async () => {
   const noon = new Date(2026, 10, 1, 12).getTime()
   const day = parseConfig({ dailyBudgetUsd: 10 })

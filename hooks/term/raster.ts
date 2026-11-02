@@ -7,7 +7,7 @@ import { clamp } from './segments'
 // The terminal's own foreground or background (bit 24 alone), so text follows the person's terminal theme.
 export const DEFAULT = 0x01000000
 
-type Ramp = Record<Exclude<Tone, 'heat' | 'ink'>, number>
+type Ramp = Record<Exclude<Tone, 'heat' | 'ink' | 'fade' | 'cool'>, number>
 
 // Mid tones that read on dark and light terminals alike; `ink` is always the terminal's own foreground.
 // One signal colour per theme (accent), as on the SVG pages.
@@ -30,11 +30,19 @@ export const mix = (a: number, b: number, k: number) => {
 // good → warn → bad along 0..1.
 const heat = (r: Ramp, f: number) => (f < 0.5 ? mix(r.good, r.warn, f * 2) : mix(r.warn, r.bad, (f - 0.5) * 2))
 
+// Tones that change along their run: each cell takes the colour of its own position.
+const GRADIENT = new Set<Tone>(['heat', 'fade', 'cool'])
+
 const toneColor = (r: Ramp, tone: Tone | undefined, f: number): number => {
   if (!tone || tone === 'ink') return DEFAULT
   if (tone === 'heat') return heat(r, f)
+  if (tone === 'fade') return mix(r.accent, r.faint, Math.min(1, f * 1.6))
+  if (tone === 'cool') return mix(r.info, r.good, f)
   return r[tone]
 }
+
+// The text on a pill: dark on every theme, since the pill paints its own ground.
+const PILL_INK = 0x17140f
 
 // A code point the Raster accepts: printable and one cell wide. Everything else draws as '?', so text from tool
 // input, paths or model names can never get a tree refused.
@@ -50,12 +58,13 @@ const SPIN = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏']
 const QMARK = 0x3f
 const WHITE = 0xffffff
 
-// One cell of a segment at frame `phase`: the glyph and its foreground.
-const cell = (r: Ramp, s: Seg, cp: number, i: number, n: number, phase: number): [number, number] => {
+// One cell of a segment at frame `phase`: the glyph, its foreground and its background.
+const cell = (r: Ramp, s: Seg, cp: number, i: number, n: number, phase: number): [number, number, number] => {
   // A meter's first cell is its start colour and its last the end, whatever the width.
-  const f = s.tone === 'heat' ? clamp((s.at ?? 0) + (s.span && s.span > 1 ? i / (s.span - 1) : 0)) : 0
+  const f = s.tone && GRADIENT.has(s.tone) ? clamp((s.at ?? 0) + (s.span && s.span > 1 ? i / (s.span - 1) : 0)) : 0
   let fg = toneColor(r, s.tone, f)
-  if (s.anim === 'spin') return [SPIN[phase % SPIN.length]?.codePointAt(0) ?? cp, fg === DEFAULT ? r.accent : fg]
+  if (s.pill && fg === DEFAULT) fg = r.accent
+  if (s.anim === 'spin') return [SPIN[phase % SPIN.length]?.codePointAt(0) ?? cp, fg === DEFAULT ? r.accent : fg, DEFAULT]
   if (s.anim === 'pulse') {
     const k = (Math.sin(phase * 0.6) + 1) / 2
     fg = mix(fg === DEFAULT ? r.accent : fg, WHITE, k * 0.55)
@@ -65,7 +74,8 @@ const cell = (r: Ramp, s: Seg, cp: number, i: number, n: number, phase: number):
     const k = Math.max(0, 1 - Math.abs(i - head) / 3)
     if (k > 0) fg = mix(fg === DEFAULT ? r.accent : fg, WHITE, k * 0.6)
   }
-  return [cp, fg]
+  // A pill: its colour (pulsing with it) becomes the ground, and the text sits dark on top.
+  return s.pill ? [cp, PILL_INK, fg] : [cp, fg, DEFAULT]
 }
 
 export type Cells = { columns: number; rows: number; cells: string }
@@ -82,11 +92,11 @@ export const encode = (lines: Line[], columns: number, theme: Theme, phase = 0):
       const cps = [...s.t].map(ch => ch.codePointAt(0) ?? QMARK)
       for (let i = 0; i < cps.length && x < cols; i++, x++) {
         const raw = cps[i] ?? QMARK
-        const [cp, fg] = cell(r, s, safeGlyph(raw) ? raw : QMARK, i, cps.length, phase)
+        const [cp, fg, bg] = cell(r, s, safeGlyph(raw) ? raw : QMARK, i, cps.length, phase)
         const o = (y * cols + x) * 12
         buf.setUint32(o, safeGlyph(cp) ? cp : QMARK, true)
         buf.setUint32(o + 4, fg, true)
-        buf.setUint32(o + 8, DEFAULT, true)
+        buf.setUint32(o + 8, bg, true)
       }
     }
     for (; x < cols; x++) {
