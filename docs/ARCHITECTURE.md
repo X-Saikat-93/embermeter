@@ -86,7 +86,7 @@ Lifetime totals (`sessions`, `turns`, `calls`, `usd`), the same four totals per 
 | **Cache warmth** | The last reply's time plus the cache lifetime, against now. The lifetime is 5 minutes until a reply after 5–60 idle minutes rewrites under half the window, which shows an hour-long cache. |
 | **Loaded, never called** | Loaded MCP tools grouped by server (`mcp__<server>__` prefix) against the calls made to that prefix. The lifetime store keeps each server's run of sessions without a call. |
 | **Same tokens, cheaper model** | Each main-thread turn's tokens times list prices kept in `core.ts`; Haiku's 5x rate above 100k tokens is applied by the window size at the turn's end. Turns that overlapped a subagent's start are left out. |
-| **Last compaction** | On a main-conversation compaction (not `precompute`, not skipped): `tokensBefore`, `tokensAfter`, and what fed the window since the previous one. |
+| **Last compaction** | On a main-conversation compaction (not `precompute`, not skipped): `tokensBefore`, `tokensAfter`, and what fed the window since the previous one. Where the `session.compact` hook never runs (a managed plugin seated outermost can send it past), a context sample that falls to half or less from 20k tokens or more counts as one, recorded as `detected`. |
 | **Test runs** | Bash commands whose command words name a test runner; counts are read from the output's "Tests" total line, else summed across it. |
 | **Background jobs** | Opened by a Bash result's `backgroundTaskId`; closed by `TaskStop` or by the notification prompt that names the task. |
 | **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files with an Edit or Write after it. |

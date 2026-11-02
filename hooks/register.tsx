@@ -409,13 +409,17 @@ export const register: Register = (on, options) => {
   on('session.compact', async ($, e, next) => {
     const before = await get($)
     const out: any = await next(e)
-    // What had been feeding the window, kept for the main conversation's real compactions only.
-    if (e.agentId === undefined && e.trigger !== 'precompute' && out?.skip === undefined) {
-      const at = await $.clock.now()
-      const fed = turnFeed(before, before.lastCompact?.at ?? before.startedAt, 5)
-      await set($, b => ({ ...b, lastCompact: { at, trigger: String(e.trigger), before: out?.tokensBefore ?? null, after: out?.tokensAfter ?? null, fed } }))
-    }
-    await set($, compacted)
+    // Only the main conversation's compactions that stood: a precompute installs nothing, a skip keeps the
+    // conversation, and a subagent's window is not the one drawn. The window's size is set to what is left, so
+    // withCtx does not count this one again from the drop; nor does this one count where withCtx already did.
+    if (e.agentId !== undefined || e.trigger === 'precompute' || out?.skip !== undefined) return out
+    const at = await $.clock.now()
+    const fed = turnFeed(before, before.lastCompact?.at ?? before.startedAt, 5)
+    await set($, b => ({
+      ...(b.compactions > before.compactions ? b : compacted(b)),
+      lastCompact: { at, trigger: String(e.trigger), before: out?.tokensBefore ?? null, after: out?.tokensAfter ?? null, fed },
+      ctx: b.ctx && { ...b.ctx, tokens: out?.tokensAfter ?? null },
+    }))
     await note($, 'context', 'compacted', 'warn')
     await refreshComp($, true)
     return out

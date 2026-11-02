@@ -151,7 +151,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 22 | **Cache warmth** | A countdown from each reply to when the prompt cache goes cold, in the strip, the header and the status line. It learns when your account caches for an hour. Optional: a toast a minute before (`cacheAlert`). |
 | 23 | **Loaded, never called** | MCP servers whose tools sit in every request but were not called, with their tokens and how many sessions in a row they have gone unused. |
 | 24 | **Same tokens, cheaper model** | The main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, against what they cost. Turns that ran subagents are left out. |
-| 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. |
+| 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. Only the main conversation's compactions that stood count. Where another plugin keeps the compaction event from Embermeter, a window that drops by half or more is read as one (`detected`). |
 | 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node), with the failing trend. |
 | 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
 | 28 | **Background jobs** | Commands Claude ran in the background, until they end or are stopped, with an alert when one is still running two minutes after its turn. |

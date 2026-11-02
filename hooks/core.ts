@@ -376,7 +376,16 @@ const trackLimits = (hist: Record<string, LimitTrack>, limits: Limit[], at: numb
   return out
 }
 
-export const withCtx = (b: Board, ctx: Ctx): Board => {
+// A window that fell to half or less from 20k tokens or more was compacted. This is what counts a compaction when
+// the session.compact hook never ran: a managed plugin seated outermost can send that event past this one.
+// ponytail: a rewind that drops half the conversation counts too; no event here tells the two apart.
+const shrank = (from: number | null | undefined, to: number | null) => from != null && to != null && from >= 20_000 && to <= from / 2
+
+export const withCtx = (b0: Board, ctx: Ctx): Board => {
+  const from = b0.ctx?.tokens
+  const b = shrank(from, ctx.tokens)
+    ? { ...compacted(b0), lastCompact: { at: b0.now, trigger: 'detected', before: from ?? null, after: ctx.tokens, fed: turnFeed(b0, b0.lastCompact?.at ?? b0.startedAt, 5) } }
+    : b0
   const last = b.ctxHist[b.ctxHist.length - 1]
   const pct = ctx.pct
   return {

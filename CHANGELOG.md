@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 - **The terminal pane is redrawn.** Section labels in capitals on a rule that fades from the accent; thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, temperature limit, battery floor and memory limit; two-row bar charts for trends, cost per turn, the 30 days and the thermal trend; pills for the grade, test results and failing streaks; dotted leaders for file and server lists; dotted swimlane tracks. While work runs, the rules of the live sections shimmer along with the meters, and nothing moves when idle.
 
+### Fixed
+- Compactions are counted once, and only the main conversation's that stood: a `precompute`, a skipped compaction or a subagent's no longer bumps the count or re-arms the context alerts.
+- Compactions still count, and the context alerts still re-arm, when another plugin (a managed one seated outermost) sends `session.compact` past Embermeter: a window that falls to half or less from 20k tokens or more is read as one, shown as `detected`.
+
 ## [1.3.0] - 2026-11-01
 
 ### Added

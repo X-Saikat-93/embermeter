@@ -14,14 +14,14 @@ const PANE = {
   },
 } as const
 
-const engine = (on: any, usd: () => number = () => 0.5) => {
+const engine = (on: any, usd: () => number = () => 0.5, tokens: () => number = () => 40000) => {
   on('command.register', () => ({ value: { command: 'embermeter' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: {} }))
   on('clock.now', () => ({ value: 1000 }))
   on('clock.every', () => ({ value: undefined }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: 40000, percent: 20 }, rateLimits: [], cost: { usd: usd() } } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: tokens(), percent: tokens() / 2000 }, rateLimits: [], cost: { usd: usd() } } }))
   on('fs.read', () => ({ value: '50000' }))
   on('store.get', () => ({ value: null }))
   on('store.set', () => ({ value: undefined }))
@@ -173,4 +173,49 @@ test('/embermeter csv and export copy the session', async ($, on) => {
   expect(copied[0]?.startsWith('at,ms,usd,')).toBe(true)
   expect((await $.command.run({ command: 'embermeter', args: 'export' } as any)).text).toMatch(/JSON/)
   expect(JSON.parse(copied[1] ?? '{}').health.grade).toBe('A')
+})
+
+test('a compaction counts once, only where it stood in the main conversation, and without the hook too', async ($, on) => {
+  const msgs = [{ role: 'user', text: 'the summary', toolUses: [] }]
+  let tokens = 120000
+  let answer: any = { messages: msgs, tokensBefore: 120000, tokensAfter: 30000 }
+  const copied: string[] = []
+  engine(on, () => 0.5, () => tokens)
+  on('session.measure', () => ({ changed: ['context'] }))
+  on('ui.status', () => ({ value: undefined }))
+  on('session.compact', () => answer)
+  on('ui.copy', (_: unknown, e: any) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } } as any
+  })
+  const measure = () => $.session.measure({ context: { window: 200000, tokens, percent: tokens / 2000 }, rateLimits: [], changed: ['context'] } as any)
+  const count = async () => {
+    await $.command.run({ command: 'embermeter', args: 'export' } as any)
+    return JSON.parse(copied[copied.length - 1] ?? '{}')
+  }
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await measure()
+
+  // A precompute installs nothing, a subagent's is not this window, a skip keeps the conversation.
+  await $.session.compact({ trigger: 'precompute', messages: msgs } as any)
+  await $.session.compact({ trigger: 'auto', agentId: 'sub-1', messages: msgs } as any)
+  answer = { skip: 'held' }
+  await $.session.compact({ trigger: 'manual', messages: msgs } as any)
+  expect((await count()).compactions).toBe(0)
+
+  // One that stands counts once: the drop the next sample shows is the same compaction.
+  answer = { messages: msgs, tokensBefore: 120000, tokensAfter: 30000 }
+  await $.session.compact({ trigger: 'manual', messages: msgs } as any)
+  tokens = 30000
+  await measure()
+  expect((await count()).compactions).toBe(1)
+
+  // Where another plugin sends the event past this one, the window's drop alone counts it.
+  tokens = 140000
+  await measure()
+  tokens = 35000
+  await measure()
+  const out = await count()
+  expect(out.compactions).toBe(2)
+  expect(out.lastCompact).toMatchObject({ trigger: 'detected', before: 140000, after: 35000 })
 })
