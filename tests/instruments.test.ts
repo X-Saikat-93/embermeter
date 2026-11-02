@@ -16,6 +16,7 @@ import {
   idleMcp,
   insights,
   isTestCommand,
+  liveAlerts,
   mcpLoad,
   newAlerts,
   normalize,
@@ -174,6 +175,8 @@ test('background jobs open, close by id, and alert once if still running after t
   ])
   expect(parseNotices('<task-id>bx9</task-id>')).toEqual([{ id: 'bx9', status: 'ended' }])
   expect(parseNotices('just text')).toEqual([])
+  // An earlier turn's cache countdown and an ended job's alert can never fire again, so their keys go.
+  expect(liveAlerts({ ...b, turnCount: 5, alerts: ['ctx70', 'cache:4', 'cache:5', 'job:bx1', 'job:bx2'] }).alerts).toEqual(['ctx70', 'cache:5', 'job:bx1'])
 })
 
 test('branch spend adds up across sessions, each counted once', async () => {

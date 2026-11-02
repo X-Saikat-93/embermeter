@@ -1004,6 +1004,13 @@ export const parseNotices = (text: unknown): { id: string; status: string }[] =>
   })
 }
 
+// Alert keys that can never fire again (an earlier turn's cache countdown, a job that ended) are dropped, so the list
+// stays as long as the alerts that can still matter.
+export const liveAlerts = (b: Board): Board => {
+  const open = new Set(openJobs(b).map(j => `job:${j.id}`))
+  return { ...b, alerts: b.alerts.filter(k => (k.startsWith('cache:') ? k === `cache:${b.turnCount}` : k.startsWith('job:') ? open.has(k) : true)) }
+}
+
 // Spend on the session's branch, added turn by turn; the 40 most recently used branches kept.
 export const addBranch = (l: Lifetime, branch: string, session: number, usd: number, at: number): Lifetime => {
   if (!branch) return l

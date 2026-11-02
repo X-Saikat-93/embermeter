@@ -29,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Same tokens, cheaper model: turns a background subagent was still spending during are left out, so the saving is not overstated.
 - `/embermeter reset` no longer counts as a new session in the branch, MCP and history stats, and `/clear` starts the board over instead of carrying the old conversation's jobs, tests and cache countdown.
 - The report reads "Prompt cache: warm, 4m00s left" or "cold" instead of "cache cache cold left".
+- Alert keys for an earlier turn's cache countdown or an ended job are dropped instead of piling up.
 
 ## [1.3.0] - 2026-11-01
 

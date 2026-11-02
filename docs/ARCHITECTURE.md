@@ -91,7 +91,7 @@ Lifetime totals (`sessions`, `turns`, `calls`, `usd`), the same four totals per 
 | **Background jobs** | Opened by a main-thread Bash result's `backgroundTaskId`, unless the result says no notification can follow (`backgroundEndsWithFinalResponse`) or that its subagent is woken instead (`backgroundWakesOwner`). Closed by `TaskStop`, or by each `<task-notification>` in a prompt that names the task. The System tab's lines move only while a turn runs. |
 | **Since the last commit** | The mtime of the branch's reflog, else its ref, else `logs/HEAD`, checked with the branch every 15 seconds at most; files under the project root with an Edit or Write that ran (not denied, not failed) after it. |
 | **Branch spend** | Each turn's cost added to the session's branch in the lifetime store, the 40 most recent kept. |
-| **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
+| **Alerts** | Each threshold fires once. The context alerts re-arm after a compaction. Keys that can never fire again (an earlier turn's cache countdown, an ended job) are dropped. Budget alerts fire at 50%, 80% and 100%. Each distinct loop alerts once. In quiet hours the toast is held, but the alert is still logged. |
 
 ## Heat guard
 

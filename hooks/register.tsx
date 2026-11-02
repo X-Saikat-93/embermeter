@@ -19,6 +19,7 @@ import {
   exportJson,
   isHeavy,
   isTestCommand,
+  liveAlerts,
   parseNotices,
   parseTests,
   sessionStat,
@@ -195,7 +196,7 @@ const raise = async ($: any) => {
   const fresh = newAlerts(b, cfg, life?.days?.[dayKey(b.now)]?.usd ?? null)
   if (!fresh.length) return
   const at = await $.clock.now()
-  await set($, x => fresh.reduce((acc, a) => log({ ...acc, alerts: [...acc.alerts, a.key] }, at, 'alert', a.text, 'warn'), x))
+  await set($, x => liveAlerts(fresh.reduce((acc, a) => log({ ...acc, alerts: [...acc.alerts, a.key] }, at, 'alert', a.text, 'warn'), x)))
   // Quiet hours hold the toasts only; the alert is still logged and shown in the pane.
   if (cfg.alerts && !isQuiet(cfg, at)) for (const a of fresh) $.ui.toast(`Embermeter · ${a.text}`)
 }
