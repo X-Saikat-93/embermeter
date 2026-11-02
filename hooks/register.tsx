@@ -240,10 +240,17 @@ const copyCard = async ($: any, surface?: any) => {
   $.ui.toast('Embermeter session card copied as SVG')
 }
 
+// Zeroes the counters within the same session: the start stays, so branch, MCP and history stats count it once.
 const resetBoard = async ($: any) => {
   const now = await $.clock.now()
-  await set($, () => emptyBoard(now))
+  await set($, b => ({ ...emptyBoard(now), startedAt: b.startedAt || now }))
   await tick($)
+}
+
+// A session's first board, and one more session in the lifetime totals.
+const freshSession = async ($: any, start: number) => {
+  await set($, () => emptyBoard(start))
+  await saveLife($, l => addDay({ ...l, sessions: l.sessions + 1 }, dayKey(start), { sessions: 1 }))
 }
 
 // The terminal has no Svg, yet resolve still hands one back that draws nothing; go by the surface.
@@ -304,9 +311,7 @@ export const register: Register = (on, options) => {
     const fresh = (await get($)).startedAt === 0
     if (fresh) {
       const u = await $.session.usage().catch(() => null)
-      const start = u?.startedAt ?? (await $.clock.now())
-      await set($, () => emptyBoard(start))
-      await saveLife($, l => addDay({ ...l, sessions: l.sessions + 1 }, dayKey(start), { sessions: 1 }))
+      await freshSession($, u?.startedAt ?? (await $.clock.now()))
     } else {
       await saveLife($, l => l)
     }
@@ -322,6 +327,13 @@ export const register: Register = (on, options) => {
     if (cfg.motion === 'smooth') $.clock.every(140, () => animate($, cfg))
     return next(e)
   })
+
+  // A /clear goes on under a new session id and no session.start fires for it: the board starts over here.
+  on('session.end', async ($, e, next) => {
+    const out = await next(e)
+    if (e.reason === 'clear') await freshSession($, await $.clock.now())
+    return out
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'embermeter' }, async ($, e) => {
     const arg = String(e.args ?? '').trim().toLowerCase()

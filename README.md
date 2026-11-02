@@ -226,7 +226,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | `/embermeter card` | Copy a session card (SVG) to share; the pane has a button too |
 | `/embermeter export` | Copy the whole session as JSON: totals, turns, tools, files, agents and history |
 | `/embermeter csv` | Copy one row per turn as CSV, for a spreadsheet |
-| `/embermeter reset` | Zero this session's counters |
+| `/embermeter reset` | Zero this session's counters; it stays the same session in the lifetime stats. `/clear` starts the board over by itself, as a new session |
 | `/embermeter close` | Close the panel |
 
 **Settings.** Open `/config`, or set them under `pluginConfigs.embermeter` in `~/.claude/settings.json`:

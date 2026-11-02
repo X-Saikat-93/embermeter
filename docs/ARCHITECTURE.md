@@ -34,7 +34,7 @@ sequenceDiagram
   P->>P: draw.ts eases from the previous board
 ```
 
-1. **Events in.** `register.tsx` listens to `prompt.submit`, `turn.start`, `turn.complete`, `tool.check`, `tool.call`, `agent.spawn`, `session.measure` and `session.compact`. Each handler maps the event to one `core.ts` transition (`startCall`, `endTurn`, `spawnAgent`…) and writes the new board to the `board` atom.
+1. **Events in.** `register.tsx` listens to `prompt.submit`, `turn.start`, `turn.complete`, `tool.check`, `tool.call`, `agent.spawn`, `session.measure`, `session.compact` and `session.end` (a `/clear`, which starts the board over since no `session.start` follows). Each handler maps the event to one `core.ts` transition (`startCall`, `endTurn`, `spawnAgent`…) and writes the new board to the `board` atom.
 2. **Sensors.** One `$.clock.every` timer. Sensors (`/sys`, `/proc`) are sampled every 5 seconds. The clock ticks every second only while a turn or a subagent is running. The context breakdown (`session.usage({ breakdown: 'summary' })`, a local estimate) is refreshed at most every 15 seconds, and always after a turn or a compaction.
 3. **Render.** `ui.render` hooks for `Pane` and `AbovePrompt` read the atom, so any write redraws them. `register.tsx` keeps the previously drawn board for each site, and `draw.ts` uses it to ease values from the old reading to the new one.
 
