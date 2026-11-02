@@ -272,8 +272,10 @@ async function track($: any, call: Call, input: any, ran: any, status: CallStatu
     return
   }
   if (call.tool !== 'Bash' || status === 'denied' || typeof input.command !== 'string' || !isTestCommand(input.command)) return
+  // A run that exited non-zero failed, whatever its summary counted (a suite that did not load, a coverage floor).
   const counts = parseTests(ran?.text)
-  if (counts) await set($, b => addTest(b, { at, cmd: short(input.command, 80), ...counts }))
+  const run = counts ? { ...counts, fail: counts.fail || (status === 'fail' ? 1 : 0) } : status === 'fail' ? { pass: 0, fail: 1 } : null
+  if (run) await set($, b => addTest(b, { at, cmd: short(input.command, 80), ...run }))
 }
 
 async function denyHeld($: any, tool: string, held: { why: string; ask: string }) {

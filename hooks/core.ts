@@ -940,26 +940,39 @@ export const sinceCommit = (b: Board): { files: string[]; ago: number } | null =
   return { files, ago: Math.max(0, b.now - at) }
 }
 
-const TEST_WORD = /(?<![\w./-])(?:test|tests|vitest|jest|pytest|mocha|rspec|phpunit|playwright|e2e)(?![\w./-])/
+const TEST_WORD = /(?<![\w./-])(?:--)?(?:test|tests|vitest|jest|pytest|mocha|rspec|phpunit|playwright|e2e|unittest|nextest)(?![\w./-])/
+const TEST_RUNNERS = /^(?:bundle|just|rake)$/
 
-// A command line that runs tests, judged as the heat guard judges heavy jobs: by the command word, plus the
-// subcommand for runners (`npm test`, `cargo test`), so `grep test src` or `cat tests/a.ts` do not count.
+// A command line that runs tests, judged as the heat guard judges heavy jobs: by the command word (a path's last
+// part, so `vendor/bin/phpunit` counts), plus the subcommand for runners (`npm test`, `node --test`, `./gradlew
+// test`), so `grep test src` or `cat tests/a.ts` do not count, nor the shell's own `test -f`.
 export const isTestCommand = (command: string) =>
   commandHeads(command).some(h => {
-    const word = h.split(' ')[0] ?? ''
-    return TEST_WORD.test(RUNNERS.test(word) ? h : word)
+    const word = (h.split(' ')[0] ?? '').split('/').pop() ?? ''
+    if (RUNNERS.test(word) || TEST_RUNNERS.test(word)) return TEST_WORD.test(h.slice(h.indexOf(' ') + 1))
+    return word !== 'test' && TEST_WORD.test(word)
   })
 
 const sum = (s: string, re: RegExp) => [...s.matchAll(re)].reduce((n, m) => n + Number(m[1]), 0)
 
-// Passed and failed counts from a test runner's output (Jest, Vitest, pytest, Mocha, cargo, go test -v, node --test);
-// null when it reports none. Jest and Vitest print lines per file and then a "Tests" total: the total wins.
+// Passed and failed counts from a test runner's output (Jest, Vitest, pytest, Mocha, cargo, go test -v, node --test,
+// RSpec, PHPUnit); null when it reports none. Jest and Vitest print lines per file and then a "Tests" total: the total
+// wins. A pytest error counts as a failure, as pytest itself counts it.
 export const parseTests = (text: unknown): { pass: number; fail: number } | null => {
   if (typeof text !== 'string' || !text) return null
   const t = text.slice(-20_000)
+  const rspec = /(\d+) examples?, (\d+) failures?/.exec(t)
+  if (rspec) return { pass: Number(rspec[1]) - Number(rspec[2]), fail: Number(rspec[2]) }
+  const unit = /^Tests: (\d+), Assertions: \d+(.*)$/m.exec(t)
+  if (unit) {
+    const fail = sum(unit[2] ?? '', /(?:Errors|Failures): (\d+)/g)
+    return { pass: Number(unit[1]) - fail, fail }
+  }
+  const ok = /^OK \((\d+) tests?,/m.exec(t)
+  if (ok) return { pass: Number(ok[1]), fail: 0 }
   const src = t.split('\n').filter(l => /^\s*Tests\b/.test(l) && /\d+\s+(?:passed|failed)/.test(l)).pop() ?? t
   const pass = sum(src, /(\d+)\s+(?:passed|passing)\b/gi) + sum(src, /^\W*pass\s+(\d+)\s*$/gim) + (src.match(/^\s*--- PASS:/gm)?.length ?? 0)
-  const fail = sum(src, /(\d+)\s+(?:failed|failing)\b/gi) + sum(src, /^\W*fail\s+(\d+)\s*$/gim) + (src.match(/^\s*--- FAIL:/gm)?.length ?? 0)
+  const fail = sum(src, /(\d+)\s+(?:failed|failing|errors?)\b/gi) + sum(src, /^\W*fail\s+(\d+)\s*$/gim) + (src.match(/^\s*--- FAIL:/gm)?.length ?? 0)
   return pass + fail > 0 ? { pass, fail } : null
 }
 

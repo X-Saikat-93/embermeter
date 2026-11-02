@@ -152,7 +152,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 | 23 | **Loaded, never called** | MCP servers whose tools sit in every request but were not called, with their tokens and how many sessions in a row they have gone unused. |
 | 24 | **Same tokens, cheaper model** | The main thread's turns repriced at Sonnet 5.5 and Haiku 5.5 list prices, against what they cost. Turns that ran subagents are left out. |
 | 25 | **Last compaction** | Tokens before and after the last compaction, and the files and tools that had been feeding the window. Only the main conversation's compactions that stood count. Where another plugin keeps the compaction event from Embermeter, a window that drops by half or more is read as one (`detected`). |
-| 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node), with the failing trend. |
+| 26 | **Test runs** | Passed and failed counts from each test command (Jest, Vitest, pytest, Mocha, cargo, go, node, RSpec, PHPUnit), with the failing trend. A run that exits non-zero counts as failed, even when every test it reached passed. |
 | 27 | **By branch** | Spend, sessions and turns per git branch, across sessions. |
 | 28 | **Background jobs** | Commands Claude ran in the background in the main conversation, until they end or are stopped, with an alert when one is still running two minutes after its turn. A subagent's own background commands report to that subagent and are not listed. |
 | 29 | **Since the last commit** | Files changed since the branch last moved, from git's own files without running git, plus a tip after half an hour with five or more. Files changed six or more times get a tip too. |
