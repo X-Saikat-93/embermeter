@@ -122,7 +122,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 <p align="center"><img src="docs/art/cluster.svg" alt="Sixteen instruments: runway to compact, context composition, health grade, cache analytics, cost burn, rate limits, live flow, tool leaderboard, file heatmap, subagent swimlanes, heat guard, session report, loop watch, context fed by tools, cost waterfall, thirty days" width="880"></p>
 
 <details>
-<summary><b>The sixteen instruments, in words</b></summary>
+<summary><b>All twenty-nine instruments, in words</b></summary>
 <br>
 
 | | Instrument | What it tells you |
