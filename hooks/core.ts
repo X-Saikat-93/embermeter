@@ -298,11 +298,12 @@ export const endTurn = (b: Board, at: number, ms: number | null, reason: string,
   const tokens = toTokens(usage)
   const model = usage?.model ?? b.model
   // A reply after more than five idle minutes that rewrote under half of what the window held found the cache still
-  // warm, so this account's cache lasts an hour. Anything less certain keeps the five-minute default.
+  // warm, so this account's cache lasts an hour. Anything less certain keeps the five-minute default, and so does a
+  // window that shrank during the turn: a compaction rewrites only the shorter prompt, warm cache or not.
   const prev = b.turns[b.turns.length - 1]
   const idle = prev ? b.turnStart - prev.at : 0
   const held = b.turnCtxStart !== null && c?.window ? (b.turnCtxStart / 100) * c.window : 0
-  const warm = tokens !== null && idle > CACHE_SHORT + 30_000 && idle < CACHE_LONG && held > 10_000 && tokens.cacheWrite < held / 2
+  const warm = tokens !== null && idle > CACHE_SHORT + 30_000 && idle < CACHE_LONG && held > 10_000 && tokens.cacheWrite < held / 2 && (c?.tokens ?? 0) >= held / 2
   const turn: Turn = {
     at,
     ms: ms ?? Math.max(0, at - b.turnStart),

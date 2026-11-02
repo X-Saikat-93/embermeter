@@ -71,6 +71,10 @@ test('the cache counts down from the last reply and learns an hour-long cache', 
   let c = turn(withCtx(emptyBoard(0), ctx(40)), 0, 10_000, 40, 45)
   c = turn(c, 10_000 + 10 * 60_000, 10_000 + 11 * 60_000, 45, 46, usage(500, 800, 0, 90_000))
   expect(c.cacheTtl).toBe(CACHE_SHORT)
+  // A compaction inside the turn rewrites only the shorter prompt: little written, yet the cache was cold.
+  let d = turn(withCtx(emptyBoard(0), ctx(85)), 0, 10_000, 85, 85)
+  d = turn(d, 10_000 + 10 * 60_000, 10_000 + 11 * 60_000, 85, 18, usage(500, 800, 0, 36_000))
+  expect(d.cacheTtl).toBe(CACHE_SHORT)
 })
 
 test('the cache alert is opt-in and fires once a minute before the cache goes cold', async () => {

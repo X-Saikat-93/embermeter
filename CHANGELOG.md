@@ -25,6 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Background jobs: a subagent's background commands, and ones that end with their caller's answer, are no longer listed as running forever, and a prompt carrying several task notifications closes each job it names. The System tab no longer animates while idle because a dev server runs.
 - Test runs: a run that exits non-zero shows as failed (a suite that did not load, a pytest error, a coverage floor). `node --test`, `./gradlew test`, `vendor/bin/phpunit`, `bundle exec rspec`, `python -m unittest`, `just test` and `cargo nextest` are recognised, RSpec and PHPUnit totals are read, and the shell's `test -f` no longer counts.
 - Since the last commit: only edits that ran count (not denied or failed ones), only files inside the project, and a commit made while Claude is idle clears the count within 15 seconds.
+- The cache countdown no longer switches to an hour for good after a turn that compacted mid-way.
 
 ## [1.3.0] - 2026-11-01
 
