@@ -370,11 +370,12 @@ export const header = (D: Draw, b: Board, cfg: Cfg) => {
   const state = b.running ? `Running ${dur(b.now - b.turnStart)}` : busy ? 'Agents working' : `Idle${cache && !wide ? ` · ${cache}` : ''}`
   const H = wide ? 64 : 92
   const why = h.reasons.length ? h.reasons.slice(0, 3).join(' · ') : 'all clear'
+  // The mark is the ember (the session card's sun), rippling while work runs; the grade is named beside it.
   let body =
-    `<rect x="12" y="12" width="40" height="40" rx="9" fill="none" stroke="${gc}" stroke-width="1.5"/>` +
-    txt(D, 32, 39, h.grade, { size: 22, weight: 700, mono: true, anchor: 'middle', color: gc }) +
-    txt(D, 64, 29, 'Embermeter', { size: 15, weight: 700, color: p.ink }) +
-    txt(D, 64, 46, `${h.score}/100 · ${why}`, { size: 10, color: p.sub })
+    `<circle cx="32" cy="32" r="15" fill="none" stroke="${p.ink}" stroke-opacity="0.18"/>` +
+    dot(D, 32, 32, p.amber, busy, 9) +
+    txt(D, 60, 29, 'Embermeter', { size: 15, weight: 700, color: p.ink }) +
+    `<text x="60" y="46" font-size="10" fill="${p.sub}" font-family="${SANS}"><tspan fill="${gc}" font-weight="700">Grade ${h.grade}</tspan>${esc(` · ${h.score}/100 · ${why}`)}</text>`
   const sx = wide ? D.W - 236 : 64
   const sy = wide ? 29 : 72
   body +=
@@ -1023,8 +1024,8 @@ export const strip = (D: Draw, b: Board, cfg: Cfg) => {
   const mini = (x: number, name: string, value: string, f: number | null, pf: number | null | undefined, col: string, mark?: number) =>
     label(D, x, 13, name) + txt(D, x + 90, 13, value, { size: 9.5, mono: true, anchor: 'end', color: p.ink }) + meter(D, x, 18, 90, f, pf, col, 3, mark)
   const body =
-    `<rect x="6.5" y="4.5" width="20" height="20" rx="5" fill="none" stroke="${gc}"/>` +
-    txt(D, 16.5, 19, h.grade, { size: 12, weight: 700, mono: true, anchor: 'middle', color: gc }) +
+    `<rect x="6.5" y="4.5" width="20" height="20" rx="5" fill="${gc}"/>` +
+    txt(D, 16.5, 19, h.grade, { size: 12, weight: 700, mono: true, anchor: 'middle', color: p.ground }) +
     dot(D, 40, 14.5, busy ? p.amber : p.faint, busy, 3) +
     txt(D, 50, 18, b.running ? dur(b.now - b.turnStart) : busy ? 'agents' : 'idle', { size: 10, weight: 600, mono: b.running, color: busy ? p.amber : p.sub }) +
     mini(108, 'ctx', c?.pct != null ? `${Math.round(c.pct)}%` : '–', c?.pct != null ? c.pct / 100 : null, D.prev?.ctx?.pct != null ? D.prev.ctx.pct / 100 : null, level(D, (c?.pct ?? 0) / ceiling), ceiling < 100 ? ceiling / 100 : undefined) +

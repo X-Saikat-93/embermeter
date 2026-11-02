@@ -93,9 +93,11 @@ export const termHeader = (b: Board, cfg: Cfg, cols?: number): Line[] => {
   const where = [`turn ${b.turnCount}`, dur(b.now - b.startedAt), b.branch ? `on ${short(b.branch, 20)}` : '', sc?.files.length ? `${sc.files.length} changed since commit` : '', b.model ? short(b.model, 28) : ''].filter(Boolean).join(' · ')
   return [
     line(
-      pill(` ${h.grade} `, GRADE_TONE[h.grade] ?? 'info', live ? 'pulse' : undefined),
-      seg('  EMBERMETER', 'accent'),
-      seg(`   ${h.score}`, 'ink'),
+      seg('◉', 'accent', live ? 'pulse' : undefined),
+      seg(' EMBERMETER', 'accent'),
+      seg('   grade ', 'faint'),
+      pill(` ${h.grade} `, GRADE_TONE[h.grade] ?? 'info'),
+      seg(` ${h.score}`, 'ink'),
       seg('/100', 'faint'),
       seg(`   ${h.reasons.length ? h.reasons.slice(0, 3).join(' · ') : 'all clear'}`, h.reasons.length ? 'sub' : 'good'),
     ),
@@ -464,7 +466,7 @@ export const termStrip = (b: Board, cfg: Cfg): Line => {
   const ceiling = compactPct(b)
   const sep = seg('  ·  ', 'faint')
   const parts: Seg[][] = [
-    [pill(` ${h.grade} `, GRADE_TONE[h.grade] ?? 'info', live ? 'pulse' : undefined)],
+    [seg('◉ ', 'accent', live ? 'pulse' : undefined), pill(` ${h.grade} `, GRADE_TONE[h.grade] ?? 'info')],
     b.running ? [seg('⠋', 'warn', live ? 'spin' : undefined), seg(` ${dur(b.now - b.turnStart)}`, 'warn')] : [seg('◦ idle', 'faint')],
   ]
   if (c?.pct != null) parts.push([seg('ctx ', 'sub'), ...meter(c.pct / 100, 12, 'heat', live ? 'flow' : undefined, ceiling < 100 ? ceiling / 100 : undefined), seg(` ${Math.round(c.pct)}%`, level(c.pct / ceiling))])

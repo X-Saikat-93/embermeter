@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 - **The terminal pane is redrawn.** Section labels in capitals on a rule that fades from the accent; thin gradient meters (`━━━╸───`) with a red line (`┊`) at the compaction point, temperature limit, battery floor and memory limit; two-row bar charts for trends, cost per turn, the 30 days and the thermal trend; pills for the grade, test results and failing streaks; dotted leaders for file and server lists; dotted swimlane tracks. While work runs, the rules of the live sections shimmer along with the meters, and nothing moves when idle.
+- **The ember is the mark.** The header leads with the ember (`◉` in the terminal, the sun in SVG), which glows while work runs; the grade sits beside the name as a labelled badge instead of where a logo goes.
 
 ### Fixed
 - Compactions are counted once, and only the main conversation's that stood: a `precompute`, a skipped compaction or a subagent's no longer bumps the count or re-arms the context alerts.

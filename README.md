@@ -166,7 +166,7 @@ Most dashboards report what the agent already did. Embermeter also **forecasts**
 
 The panel has eight tabs, and keys `1`–`8` switch between them. It opens on the **Overview**:
 
-<p align="center"><img src="docs/header.svg" alt="Header: health grade, live turn timer, git branch, model and session clock" width="640"></p>
+<p align="center"><img src="docs/header.svg" alt="Header: the ember mark, health grade, live turn timer, git branch, model and session clock" width="640"></p>
 <p align="center"><img src="docs/overview.svg" alt="Overview: arc gauges for context, cost, cache hit and temperature; rate limits; live flow; trends; turn timeline" width="640"></p>
 
 <table>
@@ -281,7 +281,7 @@ At the end of a session, `/embermeter card` (or **Copy card** in the pane) copie
 | Surface | What you get |
 |---|---|
 | **VS Code**, **desktop app** | The full animated panel, strip and status line |
-| **Terminal (CLI)** | The full panel drawn in coloured cells: capital section labels on fading rules, thin gradient meters with red-line marks, two-row bar charts, grade pills and swimlanes. While work runs, a spinner turns, the grade pulses and a highlight sweeps the live meters and section rules (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
+| **Terminal (CLI)** | The full panel drawn in coloured cells: capital section labels on fading rules, thin gradient meters with red-line marks, two-row bar charts, grade pills and swimlanes. While work runs, a spinner turns, the ember mark glows and a highlight sweeps the live meters and section rules (about 7 frames a second, only the blocks that move; nothing when idle). `terminalDrawing: text` gives plain lines instead |
 | **Linux** | Vitals and heat guard from `/sys` and `/proc` |
 | **macOS, Windows** | Vitals read `–` and the heat guard rests. Everything else works |
 
